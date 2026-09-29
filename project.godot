@@ -1,0 +1,44 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
+
+config_version=5
+
+[application]
+
+config/name="Rock_Paper_Scissors_Duel"
+run/main_scene="uid://bamqb8n1q3iqt"
+config/features=PackedStringArray("4.6", "Mobile")
+boot_splash/image="uid://brlgd7a6cc3s5"
+config/icon="uid://ci4yringcijm"
+
+[autoload]
+
+MusicManager="*uid://cdoe50rvfsbil"
+OnlineSession="*res://online/online_session.gd"
+OnlineBootstrap="*res://online/online_bootstrap.gd"
+
+[display]
+
+window/size/viewport_width=2400
+window/size/viewport_height=1080
+window/size/sharp_corners=true
+window/size/window_width_override=1600
+window/size/window_height_override=720
+window/stretch/mode="canvas_items"
+window/stretch/aspect="keep_width"
+
+[physics]
+
+3d/physics_engine="Jolt Physics"
+
+[rendering]
+
+rendering_device/driver.windows="d3d12"
+renderer/rendering_method="mobile"
+textures/vram_compression/import_etc2_astc=true
+textures/default_filters/anisotropic_filtering_level=4

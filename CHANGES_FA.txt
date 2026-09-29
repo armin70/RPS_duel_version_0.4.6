@@ -1,0 +1,30 @@
+تغییرات Patch 0.5.0
+===================
+
+GameLayout3D
+- حذف کامل سیستم pixel-to-world و runtime field layout.
+- حذف camera override و resize/stabilize camera logic.
+- حذف runtime ground creation.
+- حفظ owner_id / logical_id / collision configuration.
+- حفظ online visual/logical player mapping.
+- استفاده از BoardPivot به‌عنوان parent فیزیکی Slotهای برد.
+
+TransparentMainMenu
+- حذف export مربوط به IntroCameraController.
+- حذف await intro_camera.move_to_game_position().
+- قرار دادن CanvasLayer/AlphaNotice/UnderstoodButton در حالت ALWAYS برای Pause.
+- بالا آوردن z-index Notice/Button.
+- Ignore کردن Mouse روی Controlهای تزئینی Notice تا کلیک به UnderstoodButton برسد.
+- جلوگیری از اتصال تکراری signal دکمه.
+
+MatchController3D
+- یک process_frame قبل از _ensure_vfx_manager() در _ready().
+- جلوگیری از خطای add_child هنگام busy بودن parent در startup.
+
+Scene migration
+- ساخت BoardPivot.
+- Reparent با keep_global_transform=true برای PlayerBoard/DealerRow/OpponentBoard/BoardPlane.
+- ساخت BoardPlane با PlaneMesh اگر وجود نداشته باشد.
+- استفاده از Land2.5D_V1.1.png در صورت وجود.
+- مخفی کردن GroundMap و Land&Inviormentglb قدیمی بدون Delete.
+- Detach کردن script دوربین فقط اگر source شامل move_to_game_position باشد.

@@ -1,0 +1,20 @@
+[gd_resource type="Resource" script_class="CardDefinition" format=3 uid="uid://b16irfqot7x80"]
+
+[ext_resource type="Script" uid="uid://bfa6ofr3bgyvd" path="res://core/cards/card_definition.gd" id="1_card"]
+[ext_resource type="Script" uid="uid://0cmudjxlyc1y" path="res://core/cards/behaviors/op_healer_behavior.gd" id="2_behavior"]
+[ext_resource type="Texture2D" uid="uid://c5y03g8dm5joe" path="res://art/cards/pop-gheichi.png" id="2_jq75h"]
+[ext_resource type="Texture2D" uid="uid://ifsaeb8etk7o" path="res://art/card_info/new_corrected/165.jpg" id="99_info"]
+
+[sub_resource type="Resource" id="Behavior"]
+script = ExtResource("2_behavior")
+
+[resource]
+script = ExtResource("1_card")
+card_id = &"op_healer_scissors"
+display_name = "OP Healer Scissors"
+gesture = 2
+mana_cost = 10
+rarity = 1
+front_texture = ExtResource("2_jq75h")
+info_image = ExtResource("99_info")
+behavior = SubResource("Behavior")

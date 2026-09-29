@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="HeroDefinition" format=3 uid="uid://d1acfx0a3bst5"]
+
+[ext_resource type="Script" uid="uid://bp5hdyytixkvw" path="res://core/heroes/hero_definition.gd" id="1"]
+[ext_resource type="Texture2D" uid="uid://4chldyuon8wy" path="res://art/heroes/afrasiab.png" id="2"]
+
+[resource]
+script = ExtResource("1")
+hero_kind = 2
+active_mana_cost = 2
+active_title = "Poison Trap"
+active_description = "If Afrasiab loses to the enemy Champion this turn, add 2 Poison cards to that opponent Draw Pile and shuffle it. Poison costs 4 mana; each Poison left in hand deals 1 damage to its Champion. Playing Poison for 4 mana removes it from the match instead of discarding it."
+card_id = &"hero_afrasiab"
+display_name = "Afrasiab"
+gesture = 2
+mana_cost = 0
+visual_id = &"hero_afrasiab"
+front_texture = ExtResource("2")
+info_image = ExtResource("2")

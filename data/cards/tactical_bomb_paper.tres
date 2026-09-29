@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="CardDefinition" format=3 uid="uid://b8n1af6yf8wqh"]
+
+[ext_resource type="Script" uid="uid://bfa6ofr3bgyvd" path="res://core/cards/card_definition.gd" id="1_card"]
+[ext_resource type="Script" uid="uid://dd63qy73tltcy" path="res://core/cards/behaviors/tactical_bomb_behavior.gd" id="2_behavior"]
+[ext_resource type="Texture2D" uid="uid://ceh1o3f8vdrrk" path="res://art/cards/corrected_new_batch/tactical_bomb_paper.jpg" id="3_art"]
+[ext_resource type="Texture2D" uid="uid://bxy3q4s4aqa3o" path="res://art/card_info/new_corrected/148.jpg" id="99_info"]
+
+[sub_resource type="Resource" id="Behavior"]
+script = ExtResource("2_behavior")
+destroyed_gesture = 2
+
+[resource]
+script = ExtResource("1_card")
+card_id = &"tactical_bomb_paper"
+display_name = "Tactical Bomb Paper"
+gesture = 1
+mana_cost = 4
+rarity = 1
+front_texture = ExtResource("3_art")
+info_image = ExtResource("99_info")
+behavior = SubResource("Behavior")

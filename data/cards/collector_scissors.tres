@@ -1,0 +1,25 @@
+[gd_resource type="Resource" script_class="CardDefinition" format=3 uid="uid://b0hdfg6msb6i6"]
+
+[ext_resource type="Script" uid="uid://bfa6ofr3bgyvd" path="res://core/cards/card_definition.gd" id="1_4ko73"]
+[ext_resource type="Script" uid="uid://x34p7rpd0swt" path="res://core/cards/behaviors/collector_behavior.gd" id="1_ud1ny"]
+[ext_resource type="Texture2D" uid="uid://nmpvfefjfy0p" path="res://art/cards/65.png" id="2_ud1ny"]
+[ext_resource type="Texture2D" uid="uid://buv6cei0a802x" path="res://art/card_info/26.png" id="4_7e486"]
+[ext_resource type="Resource" uid="uid://buwenndgb25ri" path="res://data/vfx/collector_scissors_vfx.tres" id="99_vfx1"]
+
+[sub_resource type="Resource" id="Resource_7e486"]
+script = ExtResource("1_ud1ny")
+collected_gesture = 2
+metadata/_custom_type_script = "uid://x34p7rpd0swt"
+
+[resource]
+script = ExtResource("1_4ko73")
+card_id = &"collector_scissors"
+display_name = "Scissors Collector"
+gesture = 2
+mana_cost = 3
+rarity = 1
+front_texture = ExtResource("2_ud1ny")
+info_image = ExtResource("4_7e486")
+ability_vfx = ExtResource("99_vfx1")
+behavior = SubResource("Resource_7e486")
+metadata/_custom_type_script = "uid://bfa6ofr3bgyvd"

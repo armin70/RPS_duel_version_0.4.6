@@ -1,0 +1,8639 @@
+class_name MatchController3D
+extends Node3D
+
+
+signal overlap_combat_step_finished
+signal combat_result_vfx_finished
+
+
+const SLOT_COLLISION_MASK: int = 2
+const CARD_DETAIL_OVERLAY_SCRIPT: Script = preload(
+	"res://game/ui/card_detail_overlay.gd"
+)
+const DECK_SELECTION_SCREEN_SCRIPT: Script = preload(
+	"res://game/deck_builder/deck_selection_screen.gd"
+)
+const RUSH_SACRIFICE_CONTROL_SCRIPT: Script = preload(
+	"res://game/ui/rush_sacrifice_control.gd"
+)
+const HERO_SELECTION_CONTROL_SCRIPT: Script = preload(
+	"res://game/ui/hero_selection_control.gd"
+)
+const HERO_POWER_CONTROL_SCRIPT: Script = preload(
+	"res://game/ui/hero_power_control.gd"
+)
+const HERO_ENERGY_CONTROL_SCRIPT: Script = preload(
+	"res://game/ui/hero_energy_control.gd"
+)
+const ROSTAM_HERO: HeroDefinition = preload(
+	"res://data/heroes/rostam_hero.tres"
+)
+const TAHMINEH_HERO: HeroDefinition = preload(
+	"res://data/heroes/tahmineh_hero.tres"
+)
+const AFRASIAB_HERO: HeroDefinition = preload(
+	"res://data/heroes/afrasiab_hero.tres"
+)
+const DEFAULT_DECK_BUILDER_SETTINGS: DeckBuilderSettings = preload(
+	"res://data/deck_builder/default_deck_builder_settings.tres"
+)
+const RUSH_MATCH_RULES: MatchRules = preload(
+	"res://data/rules/rush_match_rules.tres"
+)
+const RUSH_DECK: DeckDefinition = preload(
+	"res://data/decks/rush_deck.tres"
+)
+const COMBAT_RESULT_VFX_SCRIPT: Script = preload(
+	"res://game/vfx/combat_result_vfx_3d.gd"
+)
+const DEFAULT_WIN_RESULT_FRAMES: SpriteFrames = preload(
+	"res://data/vfx/combat_result_win_frames.tres"
+)
+const DEFAULT_LOSS_RESULT_FRAMES: SpriteFrames = preload(
+	"res://data/vfx/combat_result_loss_frames.tres"
+)
+const DEFAULT_DRAW_RESULT_FRAMES: SpriteFrames = preload(
+	"res://data/vfx/combat_result_draw_frames.tres"
+)
+
+
+@export_category("VFX")
+
+@export var vfx_manager: CardVFXManager3D
+
+# Kept temporarily so the current binary main_game.scn can still deserialize
+# its old inspector fields safely. The new VFX system does not use them.
+@export_category("Legacy VFX References")
+@export var saw_vfx_spawn: Node3D
+@export var mustache_vfx_spawn: Node3D
+@export var MUSTACHE_VFX_SCENE: PackedScene
+@export var SAW_DIRT_SCENE: PackedScene
+@export var saw_sound_volume_db: float = 0.0
+@export var mustache_vfx_lifetime: float = 5.0
+
+@export_category("VFX Timing")
+@export_range(0.0, 1.0, 0.01)
+var collector_pull_delay: float = 0.20
+@export_category("Match Resources")
+@export var rules: MatchRules
+@export var player_one_deck: DeckDefinition
+@export var player_two_deck: DeckDefinition
+@export var dealer_deck: DeckDefinition
+
+@export_category("Game Mode")
+@export var rush_mode_enabled: bool = false
+
+@export_category("Player Deck Choice")
+@export var player_one_deck_2: DeckDefinition
+@export var player_one_deck_3: DeckDefinition
+
+# Optional. When empty, the first card inside each deck is used as its cover.
+@export var deck_one_preview_card: CardDefinition
+@export var deck_two_preview_card: CardDefinition
+@export var deck_three_preview_card: CardDefinition
+@export var deck_builder_settings: DeckBuilderSettings = \
+	DEFAULT_DECK_BUILDER_SETTINGS
+
+@export_range(1.0, 6.0, 0.1)
+var deck_choice_distance: float = 2.6
+
+@export_range(0.4, 2.0, 0.05)
+var deck_choice_spacing: float = 0.45
+
+@export_range(0.5, 4.0, 0.1)
+var deck_choice_scale: float = 1
+
+@export_range(-2.0, 2.0, 0.05)
+var deck_choice_vertical_offset: float = 0.0
+
+@export_range(0.05, 1.0, 0.05)
+var deck_choice_animation_time: float = 0.30
+
+
+@export_category("Scene References")
+@export var game_layout: GameLayout3D
+@export var card_scene: PackedScene
+@export var runtime_cards: Node3D
+@export var camera_3d: Camera3D
+@export var hud: GameHUD
+@export var balance_scale: GameBalanceScale3D
+
+@export_category("Tutorial")
+@export var tutorial_enabled: bool = false
+# Optional portrait shown inside the tutorial speech panel. If left empty,
+# the tutorial uses its built-in RPS GUIDE fallback badge.
+@export var tutorial_guide_texture: Texture2D
+
+
+@export_category("Drag")
+@export_range(1, 2, 1)
+var local_player_id: int = 1
+
+@export var drag_plane_height: float = 0.25
+
+@export_category("Low Mana Drag Feedback")
+@export_range(0.20, 0.70, 0.05)
+var low_mana_reject_distance_ratio: float = 0.45
+@export_range(0.20, 1.20, 0.05)
+var low_mana_reject_max_distance: float = 0.65
+@export_range(0.03, 0.20, 0.01)
+var low_mana_reject_out_time: float = 0.08
+@export_range(0.05, 0.30, 0.01)
+var low_mana_reject_return_time: float = 0.14
+
+@export_category("Cover Feedback")
+@export_range(20, 120, 5)
+var invalid_cover_vibration_ms: int = 40
+@export_range(0.10, 0.50, 0.01)
+var invalid_cover_flash_time: float = 0.22
+
+@export_category("Board Placement")
+@export_range(0.05, 0.5, 0.01)
+var board_reflow_time: float = 0.16
+
+@export_category("Early Drop Highlight")
+# Highlight the intended board slot after the pointer has travelled roughly
+# one quarter of the route toward it.
+@export_range(0.10, 0.75, 0.05)
+var early_drop_highlight_progress_ratio: float = 0.25
+
+# In the new 2.5D perspective layout the far/top board slots occupy much less
+# screen space than the near/bottom row. Physics ray hits alone therefore make
+# the top and middle slots unnecessarily hard to target. This extra screen-space
+# margin keeps every printed slot equally usable on desktop and mobile.
+@export_category("2.5D Board Slot Picking")
+@export_range(0.0, 80.0, 1.0)
+var board_slot_screen_pick_margin_px: float = 28.0
+@export_range(1.0, 2.0, 0.05)
+var board_slot_screen_pick_extent_scale: float = 1.35
+
+
+@export_category("Bot and Reveal")
+@export var bot_think_time: float = 0.3
+@export var reveal_step_time: float = 0.3
+@export_range(0.0, 2.0, 0.05)
+var bot_action_pause: float = 0.45
+@export var reveal_drop_height: float = 0.4
+
+@export_category("Rush Penalty Animation")
+@export_range(0.10, 1.50, 0.05)
+var rush_penalty_raise_height: float = 0.55
+@export_range(0.10, 1.50, 0.05)
+var rush_penalty_fade_time: float = 0.55
+
+@export_category("Combat Animation")
+@export_range(0.0, 1.0, 0.01)
+var combat_lift_height: float = 0.38
+@export_range(0.05, 1.0, 0.01)
+var combat_lift_time: float = 0.16
+@export_range(0.05, 1.0, 0.01)
+var combat_attack_time: float = 0.12
+@export_range(0.05, 1.0, 0.01)
+var combat_return_time: float = 0.10
+@export_range(0.0, 0.5, 0.01)
+var combat_hit_pause: float = 0.03
+@export_range(0.0, 0.5, 0.01)
+var combat_attack_gap: float = 0.04
+@export_range(0.0, 1.0, 0.01)
+var combat_phase_pause: float = 0.08
+
+# Dealer combat intentionally uses a different visual language than PvP:
+# attackers travel almost all the way to the Dealer card, and the Dealer
+# card reacts to the impact. PvP still meets around the midpoint.
+@export_range(0.0, 0.3, 0.01)
+var dealer_attack_stop_ratio: float = 0.05
+@export_range(0.0, 0.5, 0.01)
+var dealer_recoil_distance: float = 0.10
+@export_range(0.0, 0.5, 0.01)
+var dealer_recoil_height: float = 0.08
+@export_range(0.01, 0.5, 0.01)
+var dealer_recoil_out_time: float = 0.06
+@export_range(0.01, 0.5, 0.01)
+var dealer_recoil_return_time: float = 0.08
+
+@export_category("Combat Result VFX")
+@export var win_result_frames: SpriteFrames = DEFAULT_WIN_RESULT_FRAMES
+@export var loss_result_frames: SpriteFrames = DEFAULT_LOSS_RESULT_FRAMES
+@export var draw_result_frames: SpriteFrames = DEFAULT_DRAW_RESULT_FRAMES
+@export var result_animation_name: StringName = &"default"
+@export var result_local_offset: Vector3 = Vector3(0.0, 0.58, 0.0)
+@export_range(0.0001, 0.01, 0.0001)
+var result_pixel_size: float = 0.0012
+@export_range(0.05, 2.0, 0.05)
+var result_loop_fallback_duration: float = 0.35
+
+const MAX_KEPT_HAND_CARDS: int = 3
+const MAX_HAND_CARDS: int = 6
+const TAP_DRAG_THRESHOLD: float = 18.0
+var engine: MatchEngine
+var state: MatchState
+var kept_hand_card_ids: Dictionary = {}
+
+var pointer_start_position: Vector2 = Vector2.ZERO
+var pointer_has_dragged: bool = false
+var bot_controller: BotController = BotController.new()
+var bot_player_id: int = 2
+
+var interaction_locked: bool = false
+
+var card_views: Dictionary = {}
+var opponent_hand_views: Dictionary = {}
+var dragged_card: Card3D
+
+# Last PUBLIC board position for each card. Bot state can already contain
+# hidden current-turn actions, so visuals must not read those positions early.
+var visual_board_slots: Dictionary = {
+	1: {},
+	2: {}
+}
+var highlighted_drop_place: CardPlace3D
+
+var pending_local_cards: Array[CardInstance] = []
+var pending_bot_plays: Array[CardPlayRecord] = []
+
+# ---------------------------------------------------------
+# Lightweight online multiplayer
+# ---------------------------------------------------------
+var online_mode: bool = false
+var online_session: RPSOnlineSession
+var online_match_payload: Dictionary = {}
+var online_keep_ids_by_player: Dictionary = {1: [], 2: []}
+var online_match_seed: int = 1
+var online_battle_seed: int = 0
+var online_next_turn_seed: int = 0
+var online_last_reveal_turn: int = -1
+var online_remote_action_running: bool = false
+var online_setup_stage: String = ""
+var online_setup_transition_running: bool = false
+
+# Normal Online public actions are applied only after the server echoes them
+# back in one shared sequence. This prevents the two clients from observing
+# Hero Active / Special Attack in different orders.
+var online_public_action_pending: String = ""
+var online_hidden_action_pending: bool = false
+var online_hidden_action_sequence: int = 0
+var online_predicted_hidden_actions: Array[Dictionary] = []
+var online_turn_ready_pending: bool = false
+var online_waiting_for_combat_start: bool = false
+var online_waiting_for_turn_start: bool = false
+var online_resolving_turn: int = -1
+var online_combat_started_turn: int = -1
+var online_battle_apply_index: int = 0
+var online_transport_is_interrupted: bool = false
+var online_opponent_is_disconnected: bool = false
+var online_desync_locked: bool = false
+var online_game_over_committed: bool = false
+var online_server_event_queue: Array[Dictionary] = []
+var online_server_event_worker_running: bool = false
+var online_remote_record_turn: int = -1
+# Public opponent HUD snapshot. Hidden lockstep actions mutate MatchState early,
+# so opponent mana/score must stay frozen at their last public values until Reveal.
+var online_public_opponent_mana: int = -1
+var online_public_opponent_mana_capacity: int = -1
+var online_public_opponent_score: int = 0
+
+var deck_selection_active: bool = false
+var deck_choice_cards: Array[Card3D] = []
+var deck_selection_screen: DeckSelectionScreen
+var tutorial_controller: TutorialController
+var card_detail_overlay: CardDetailOverlay
+var rush_sacrifice_control: RushSacrificeControl
+var rush_sacrifice_target: CardInstance
+var hero_selection_control: HeroSelectionControl
+var hero_power_control: HeroPowerControl
+var hero_energy_control: HeroEnergyControl
+var hero_setup_waiting: bool = false
+var hero_setup_definition: HeroDefinition
+var hero_setup_opponent_definition: HeroDefinition
+var hero_setup_slot_id: int = -1
+var hero_opponent_selection_waiting: bool = false
+var hero_ground_selection_active: bool = false
+var hero_slot_highlight_places: Array[CardPlace3D] = []
+
+
+const HERO_ACTIVE_FEEDBACK_DURATION: float = 0.95
+const HERO_ACTIVE_FEEDBACK_RADIUS: float = 0.46
+const HERO_ACTIVE_FEEDBACK_RISE: float = 0.38
+
+# Afrasiab gets a stronger armed/triggered presentation because the effect is
+# delayed until he loses to the opposing Champion later in the battle.
+const AFRASIAB_ACTIVE_FEEDBACK_DURATION: float = 1.35
+const AFRASIAB_POISON_FLY_TIME: float = 0.52
+const AFRASIAB_POISON_FLY_STAGGER: float = 0.16
+const AFRASIAB_POISON_FLY_HEIGHT: float = 0.72
+
+
+func _ready() -> void:
+	# The transparent menu finds this controller through the group.
+	add_to_group(&"match_controller")
+
+	_ensure_vfx_manager()
+	_remove_legacy_resident_vfx()
+
+	if not _resources_are_valid():
+		return
+
+	_ensure_card_detail_overlay()
+	_ensure_rush_sacrifice_control()
+	_ensure_hero_power_control()
+	_ensure_hero_energy_control()
+
+	bot_player_id = 2 if local_player_id == 1 else 1
+
+	# Do not build MatchState yet. The player must choose a deck first.
+	interaction_locked = true
+	hud.visible = false
+	hud.set_interaction_enabled(false)
+
+	hud.end_turn_pressed.connect(
+		Callable(self, "_on_end_turn_pressed")
+	)
+
+	print("Waiting for player deck selection.")
+
+
+func _ensure_card_detail_overlay() -> void:
+	if is_instance_valid(card_detail_overlay):
+		return
+
+	if not is_instance_valid(hud):
+		return
+
+	card_detail_overlay = \
+		CARD_DETAIL_OVERLAY_SCRIPT.new() as CardDetailOverlay
+
+	if card_detail_overlay == null:
+		push_error(
+			"Could not create CardDetailOverlay."
+		)
+		return
+
+	card_detail_overlay.name = "CardDetailOverlay"
+	hud.add_child(card_detail_overlay)
+
+
+
+func _ensure_hero_power_control() -> void:
+	if is_instance_valid(hero_power_control):
+		return
+	if not is_instance_valid(hud):
+		return
+	hero_power_control = HERO_POWER_CONTROL_SCRIPT.new() as HeroPowerControl
+	if hero_power_control == null:
+		push_error("Could not create HeroPowerControl.")
+		return
+	hero_power_control.name = "HeroPowerControl"
+	hud.add_child(hero_power_control)
+	hero_power_control.active_power_requested.connect(
+		Callable(self, "_on_hero_active_power_requested")
+	)
+
+
+func _ensure_hero_energy_control() -> void:
+	if is_instance_valid(hero_energy_control):
+		return
+	if not is_instance_valid(hud):
+		return
+
+	hero_energy_control = HERO_ENERGY_CONTROL_SCRIPT.new() as HeroEnergyControl
+	if hero_energy_control == null:
+		push_error("Could not create HeroEnergyControl.")
+		return
+
+	hero_energy_control.name = "HeroEnergyControl"
+	hud.add_child(hero_energy_control)
+	hero_energy_control.special_attack_requested.connect(
+		Callable(self, "_on_special_attack_requested")
+	)
+
+
+func _ensure_hero_selection_control() -> void:
+	if is_instance_valid(hero_selection_control):
+		return
+	hero_selection_control = HERO_SELECTION_CONTROL_SCRIPT.new() as HeroSelectionControl
+	if hero_selection_control == null:
+		push_error("Could not create HeroSelectionControl.")
+		return
+	hero_selection_control.name = "HeroSelectionControl"
+	add_child(hero_selection_control)
+	hero_selection_control.hero_chosen.connect(
+		Callable(self, "_on_hero_chosen")
+	)
+
+
+func _on_hero_chosen(hero_definition: HeroDefinition) -> void:
+	if hero_definition == null:
+		return
+
+	if hero_setup_waiting:
+		hero_setup_definition = hero_definition
+		hero_setup_slot_id = -1
+		hero_ground_selection_active = true
+		interaction_locked = true
+		if is_instance_valid(hero_selection_control):
+			hero_selection_control.show_ground_instruction(hero_definition)
+		_show_hero_slot_highlights()
+		return
+
+	# Playtest helper: choose the opponent Hero manually too. The same Hero
+	# may be selected for both players.
+	if hero_opponent_selection_waiting:
+		hero_setup_opponent_definition = hero_definition
+		hero_opponent_selection_waiting = false
+
+
+func _show_hero_slot_highlights() -> void:
+	_clear_hero_slot_highlights()
+	if game_layout == null or state == null:
+		return
+	var player: PlayerState = state.get_player(local_player_id)
+	if player == null:
+		return
+
+	for slot_id: int in SlotID.all_slots():
+		if not engine.can_place_hero_at_slot(local_player_id, slot_id):
+			continue
+		var place: CardPlace3D = game_layout.get_board_place(local_player_id, slot_id)
+		if place == null:
+			continue
+		place.show_drop_highlight(
+			game_layout.get_board_anchor_transform(local_player_id, slot_id)
+		)
+		hero_slot_highlight_places.append(place)
+
+
+func _clear_hero_slot_highlights() -> void:
+	for place: CardPlace3D in hero_slot_highlight_places:
+		if is_instance_valid(place):
+			place.hide_drop_highlight()
+	hero_slot_highlight_places.clear()
+
+
+func _try_choose_hero_ground_slot(screen_position: Vector2) -> bool:
+	if not hero_ground_selection_active:
+		return false
+	if state == null or hero_setup_definition == null:
+		return true
+
+	var place: CardPlace3D = _get_place_under_mouse(screen_position)
+	if place == null:
+		return true
+	if place.kind != CardPlace3D.Kind.PLAYER_BOARD:
+		return true
+	if place.owner_id != local_player_id:
+		return true
+	if not SlotID.is_valid(place.logical_id):
+		return true
+
+	var player: PlayerState = state.get_player(local_player_id)
+	if player == null:
+		return true
+	if not engine.can_place_hero_at_slot(local_player_id, place.logical_id):
+		place.flash_invalid_drop(
+			game_layout.get_board_anchor_transform(local_player_id, place.logical_id)
+		)
+		return true
+
+	hero_setup_slot_id = place.logical_id
+	hero_ground_selection_active = false
+	hero_setup_waiting = false
+	_clear_hero_slot_highlights()
+	if is_instance_valid(hero_selection_control):
+		hero_selection_control.finish_ground_selection()
+
+	if online_mode and not rush_mode_enabled and online_session != null:
+		online_setup_stage = "waiting_hero"
+		online_session.submit_match_setup(
+			"hero",
+			{
+				"hero_kind": _online_hero_name(
+					hero_setup_definition
+				),
+				"hero_slot": _online_slot_name(
+					hero_setup_slot_id
+				)
+			}
+		)
+		print("ONLINE SETUP | local Hero submitted")
+
+	return true
+
+
+func _get_available_heroes() -> Array[HeroDefinition]:
+	var result: Array[HeroDefinition] = []
+	for hero: HeroDefinition in [ROSTAM_HERO, TAHMINEH_HERO, AFRASIAB_HERO]:
+		if hero != null:
+			result.append(hero)
+	return result
+
+
+func _setup_match_heroes() -> void:
+	# Heroes belong to NORMAL mode only. Tutorial keeps its scripted board,
+	# and Rush stays completely hero-free.
+	if (
+		tutorial_enabled
+		or rush_mode_enabled
+		or engine == null
+		or state == null
+		or state.rush_mode_enabled
+	):
+		return
+
+	_ensure_hero_selection_control()
+	if not is_instance_valid(hero_selection_control):
+		return
+
+	hero_setup_definition = null
+	hero_setup_opponent_definition = null
+	hero_setup_slot_id = -1
+	hero_setup_waiting = true
+	hero_opponent_selection_waiting = false
+	hero_ground_selection_active = false
+	hero_selection_control.configure(
+		_get_available_heroes(),
+		"هیروی خودت را انتخاب کن",
+		"یکی از هیروها را انتخاب کن؛ بعد جای شروعش را روی زمین تعیین می‌کنی."
+	)
+
+	while hero_setup_waiting:
+		await get_tree().process_frame
+
+	if hero_setup_definition == null or not SlotID.is_valid(hero_setup_slot_id):
+		return
+
+	var local_hero: CardInstance = engine.place_hero(
+		local_player_id,
+		hero_setup_definition,
+		hero_setup_slot_id
+	)
+	# The local Hero is public immediately, exactly like the player's other
+	# face-up board cards. Only the opponent Hero stays secret until the first
+	# combat has finished.
+	if local_hero != null:
+		local_hero.hero_revealed = true
+
+	# For the current playtest, choose the opponent Hero manually after the
+	# local Hero has been placed. Repeated Heroes are allowed intentionally.
+	hero_opponent_selection_waiting = true
+	hero_selection_control.configure(
+		_get_available_heroes(),
+		"هیروی حریف را انتخاب کن",
+		"برای تست، هر هیرویی را می‌توانی انتخاب کنی؛ حتی همان هیروی خودت."
+	)
+	while hero_opponent_selection_waiting:
+		await get_tree().process_frame
+
+	var bot_hero: HeroDefinition = hero_setup_opponent_definition
+	if bot_hero == null:
+		return
+
+	var bot_slots: Array[int] = []
+	var bot_player: PlayerState = state.get_player(bot_player_id)
+	if bot_player != null:
+		for candidate_slot: int in SlotID.all_slots():
+			if engine.can_place_hero_at_slot(bot_player_id, candidate_slot):
+				bot_slots.append(candidate_slot)
+	bot_slots.shuffle()
+	var bot_slot: int = (
+		bot_slots[0]
+		if not bot_slots.is_empty()
+		else SlotID.Type.FRONT_MIDDLE_0
+	)
+	engine.place_hero(bot_player_id, bot_hero, bot_slot)
+
+	# Reserve those logical cells without drawing either Hero yet.
+	_rebuild_visual_board_slots_from_state()
+
+	if is_instance_valid(hero_selection_control):
+		hero_selection_control.queue_free()
+		hero_selection_control = null
+
+
+func _online_can_restore_interaction() -> bool:
+	if not online_mode:
+		return true
+	if online_desync_locked or online_transport_is_interrupted or online_opponent_is_disconnected:
+		return false
+	if online_turn_ready_pending:
+		return false
+	if not online_public_action_pending.is_empty():
+		return false
+	if online_waiting_for_combat_start or online_waiting_for_turn_start:
+		return false
+	if online_server_event_worker_running:
+		return false
+	if state == null or state.phase != MatchPhase.Type.MAIN:
+		return false
+	var player: PlayerState = state.get_player(local_player_id)
+	return player != null and not player.is_ready
+
+
+func _refresh_online_interaction_gate() -> void:
+	if not online_mode or hud == null:
+		return
+	var allow := _online_can_restore_interaction()
+	interaction_locked = not allow
+	hud.set_interaction_enabled(allow)
+	_refresh_rush_sacrifice_ui()
+
+
+func _begin_online_public_action_request(action: Dictionary) -> void:
+	if online_session == null or state == null:
+		return
+	if not online_public_action_pending.is_empty():
+		return
+	var kind := String(action.get("kind", ""))
+	if kind.is_empty():
+		return
+	online_public_action_pending = kind
+	interaction_locked = true
+	hud.set_interaction_enabled(false)
+	_send_online_public_action(action)
+
+
+func _finish_local_online_public_action_echo(kind: String) -> void:
+	if online_public_action_pending == kind:
+		online_public_action_pending = ""
+	_refresh_online_interaction_gate()
+
+
+func _online_hidden_prediction_seed(
+	turn_number: int,
+	seat: int,
+	action_index: int
+) -> int:
+	var mixed := int((
+		int(online_match_seed) * 1103515245
+		+ int(turn_number) * 12345
+		+ int(seat) * 2654435761
+		+ int(action_index) * 1013904223
+	) & 0x7fffffff)
+	return maxi(1, mixed)
+
+
+func _prepare_online_predicted_hidden_action(action: Dictionary) -> Dictionary:
+	var prepared := action.duplicate(true)
+	# Reserve the next index without committing it yet. If MatchEngine rejects
+	# the move locally, the next valid action must still use the same index.
+	var next_index := online_hidden_action_sequence + 1
+	prepared["_client_action_index"] = next_index
+	prepared["_rng_seed"] = _online_hidden_prediction_seed(
+		state.turn_number,
+		local_player_id,
+		next_index
+	)
+	return prepared
+
+
+func _request_online_hidden_action(action: Dictionary) -> void:
+	if not online_mode or online_session == null or state == null:
+		return
+	# Local play/move has already been applied and animated optimistically.
+	# Commit the reserved sequence only after MatchEngine accepted it.
+	online_hidden_action_sequence = int(action.get(
+		"_client_action_index",
+		online_hidden_action_sequence + 1
+	))
+	# Keep a FIFO copy only for authoritative server acknowledgement.
+	online_predicted_hidden_actions.append(action.duplicate(true))
+	online_hidden_action_pending = not online_predicted_hidden_actions.is_empty()
+	online_session.queue_hidden_action(action, state.turn_number)
+
+
+func _online_actions_match(expected: Dictionary, actual: Dictionary) -> bool:
+	if String(expected.get("kind", "")) != String(actual.get("kind", "")):
+		return false
+	for key: String in [
+		"card_id",
+		"slot",
+		"from_slot",
+		"to_slot",
+		"_client_action_index",
+		"_rng_seed"
+	]:
+		if expected.has(key) or actual.has(key):
+			if int(expected.get(key, -999999)) != int(actual.get(key, -999999)):
+				return false
+	return true
+
+
+func _online_seed_for_step(base_seed: int, step_index: int) -> int:
+	var mixed := int((int(base_seed) * 1103515245 + int(step_index) * 12345 + 1013904223) & 0x7fffffff)
+	return maxi(1, mixed)
+
+
+func _apply_battle_act_network_safe(act: BattleAct) -> void:
+	if act == null or engine == null:
+		return
+	if online_mode:
+		online_battle_apply_index += 1
+		seed(_online_seed_for_step(online_battle_seed, online_battle_apply_index))
+	engine.apply_battle_act(act)
+
+
+func _safe_online_property(
+	target: Object,
+	property_name: StringName,
+	fallback: Variant
+) -> Variant:
+	if target == null:
+		return fallback
+	for info: Dictionary in target.get_property_list():
+		if StringName(info.get("name", "")) == property_name:
+			return target.get(property_name)
+	return fallback
+
+
+func _online_scalar_digest(target: Object) -> Array:
+	var result: Array = []
+	if target == null:
+		return result
+	for info: Dictionary in target.get_property_list():
+		var property_name := StringName(info.get("name", ""))
+		if property_name == StringName():
+			continue
+		var value: Variant = target.get(property_name)
+		if (
+			value is bool
+			or value is int
+			or value is float
+			or value is String
+			or value is StringName
+		):
+			result.append([String(property_name), value])
+	return result
+
+
+func _online_card_digest(card: CardInstance) -> Array:
+	if card == null:
+		return []
+	var definition_id := ""
+	if card.definition != null:
+		definition_id = String(card.definition.resource_path)
+	return [
+		int(card.instance_id),
+		definition_id,
+		_online_scalar_digest(card)
+	]
+
+
+func _online_collection_digest(cards: Array) -> Array:
+	var result: Array = []
+	for raw: Variant in cards:
+		result.append(_online_card_digest(raw as CardInstance))
+	return result
+
+
+func _online_collection_digest_variant(value: Variant) -> Array:
+	if value is Array:
+		return _online_collection_digest(value as Array)
+	return []
+
+
+func _online_player_digest(player_id: int) -> Array:
+	var player: PlayerState = state.get_player(player_id)
+	if player == null:
+		return []
+	var board_data: Array = []
+	for slot_id: int in SlotID.all_slots():
+		board_data.append([
+			slot_id,
+			_online_card_digest(player.board.get_card(slot_id))
+		])
+	return [
+		player_id,
+		_online_scalar_digest(player),
+		_online_card_digest(player.hero),
+		board_data,
+		_online_collection_digest(player.hand),
+		_online_collection_digest(player.draw_pile),
+		_online_collection_digest(player.discard_pile),
+		_online_collection_digest(player.reserve_pile),
+		_online_collection_digest(player.pending_hero_rewards),
+		_online_collection_digest(player.pending_mommy_rewards)
+	]
+
+
+func _online_dealer_digest() -> Array:
+	if state == null or state.dealer == null:
+		return []
+	var slot_data: Array = []
+	for slot_id: int in DealerSlotID.all_slots():
+		slot_data.append([
+			slot_id,
+			_online_card_digest(
+				state.dealer.slots.get(slot_id, null) as CardInstance
+			)
+		])
+	return [
+		_online_scalar_digest(state.dealer),
+		slot_data,
+		_online_collection_digest_variant(
+			_safe_online_property(state.dealer, &"draw_pile", [])
+		),
+		_online_collection_digest_variant(
+			_safe_online_property(state.dealer, &"discard_pile", [])
+		)
+	]
+
+
+func _build_online_state_digest() -> String:
+	if state == null:
+		return ""
+	var snapshot: Array = [
+		_online_scalar_digest(state),
+		_online_player_digest(1),
+		_online_player_digest(2),
+		_online_dealer_digest()
+	]
+	return JSON.stringify(snapshot).sha256_text()
+
+
+func _report_online_client_fault(reason: String) -> void:
+	online_desync_locked = true
+	interaction_locked = true
+	if hud != null:
+		hud.set_interaction_enabled(false)
+	push_error("ONLINE LOCKSTEP FAULT | " + reason)
+	if online_session != null and state != null:
+		var report_turn := state.turn_number
+		if online_resolving_turn > 0:
+			report_turn = online_resolving_turn
+		online_session.report_client_fault(report_turn, reason)
+
+
+func _apply_online_hero_active_authoritatively(
+	sender_seat: int
+) -> bool:
+	if engine == null or state == null:
+		return false
+
+	var player: PlayerState = state.get_player(sender_seat)
+	if player == null or player.hero == null:
+		return false
+
+	# Before the first Fight the remote Hero can still be hidden on this client.
+	# The originating client is nevertheless allowed to use it. Temporarily
+	# bypass only that local visibility flag for replay, then restore it.
+	var hero_was_hidden: bool = not player.hero.hero_revealed
+	if hero_was_hidden:
+		player.hero.hero_revealed = true
+
+	var applied: bool = engine.activate_hero_active(sender_seat)
+
+	if hero_was_hidden:
+		player.hero.hero_revealed = false
+
+	return applied
+
+
+func _on_hero_active_power_requested() -> void:
+	if interaction_locked or engine == null:
+		return
+
+	if online_mode:
+		if not engine.can_activate_hero_active(local_player_id):
+			return
+		_begin_online_public_action_request({"kind": "hero_active"})
+		return
+
+	if engine.activate_hero_active(local_player_id):
+		_play_hero_active_ground_feedback(local_player_id)
+		hud.refresh(state, local_player_id)
+		_refresh_board_shield_visuals(true)
+
+
+func _on_special_attack_requested() -> void:
+	if interaction_locked or engine == null or state == null:
+		return
+
+	if online_mode:
+		if not engine.can_use_special_attack(local_player_id):
+			return
+		_begin_online_public_action_request({"kind": "special_attack"})
+		return
+
+	if not engine.use_special_attack(local_player_id):
+		return
+
+	_play_special_attack_feedback(local_player_id)
+	_refresh_board_shield_visuals(true)
+	hud.refresh(state, local_player_id)
+
+	if state.is_game_over():
+		_finish_game()
+
+
+func _try_bot_special_attack() -> bool:
+	if engine == null or state == null:
+		return false
+	if not engine.can_use_special_attack(bot_player_id):
+		return false
+	if not engine.use_special_attack(bot_player_id):
+		return false
+
+	_play_special_attack_feedback(bot_player_id)
+	_refresh_board_shield_visuals(true)
+	hud.refresh(state, local_player_id)
+	return true
+
+
+func _play_special_attack_feedback(attacker_player_id: int) -> void:
+	if state == null or not is_instance_valid(runtime_cards):
+		return
+
+	var target_player_id: int = 2 if attacker_player_id == 1 else 1
+	var target_player: PlayerState = state.get_player(target_player_id)
+	if target_player == null or target_player.hero == null:
+		return
+
+	var hero_view := card_views.get(target_player.hero.instance_id, null) as Card3D
+	if hero_view == null or not is_instance_valid(hero_view):
+		return
+
+	var effect_root := Node3D.new()
+	effect_root.name = "SpecialAttackFeedback"
+	runtime_cards.add_child(effect_root)
+	effect_root.global_position = hero_view.global_position + Vector3(0.0, 0.18, 0.0)
+
+	var pulse := MeshInstance3D.new()
+	var mesh := CylinderMesh.new()
+	mesh.top_radius = HERO_ACTIVE_FEEDBACK_RADIUS * 1.25
+	mesh.bottom_radius = HERO_ACTIVE_FEEDBACK_RADIUS * 1.25
+	mesh.height = 0.018
+	pulse.mesh = mesh
+	pulse.scale = Vector3(0.2, 1.0, 0.2)
+	pulse.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	pulse.transparency = 0.05
+	var material := StandardMaterial3D.new()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.albedo_color = Color(1.0, 0.22, 0.10, 1.0)
+	pulse.material_override = material
+	effect_root.add_child(pulse)
+
+	var label := Label3D.new()
+	label.position = Vector3(0.0, HERO_ACTIVE_FEEDBACK_RISE, 0.0)
+	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	label.no_depth_test = true
+	label.font_size = 38
+	label.outline_size = 9
+	label.text = (
+		"SPECIAL ATTACK!"
+		if attacker_player_id == local_player_id
+		else "OPPONENT SPECIAL!"
+	)
+	effect_root.add_child(label)
+
+	var tween := create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(
+		pulse, "scale", Vector3(1.8, 1.0, 1.8), 0.70
+	).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tween.tween_property(pulse, "transparency", 1.0, 0.70)
+	tween.tween_property(
+		label,
+		"position",
+		Vector3(0.0, HERO_ACTIVE_FEEDBACK_RISE + 0.24, 0.0),
+		0.70
+	)
+	await tween.finished
+	if is_instance_valid(effect_root):
+		effect_root.queue_free()
+
+
+func _try_bot_hero_active() -> void:
+	if engine == null or state == null or bot_controller == null:
+		return
+	if bot_controller.try_activate_hero_power(engine, bot_player_id):
+		_play_hero_active_ground_feedback(bot_player_id)
+		_refresh_board_shield_visuals(true)
+
+
+func _play_hero_active_ground_feedback(player_id: int) -> void:
+	if state == null or engine == null:
+		return
+	if not is_instance_valid(runtime_cards):
+		return
+
+	var player: PlayerState = state.get_player(player_id)
+	if player == null or player.hero == null:
+		return
+	var hero: CardInstance = player.hero
+	var hero_def: HeroDefinition = hero.get_hero_definition()
+	if hero_def == null:
+		return
+
+	var hero_view := card_views.get(hero.instance_id, null) as Card3D
+	if hero_view == null or not is_instance_valid(hero_view):
+		return
+
+	var is_afrasiab: bool = (
+		hero_def.hero_kind == HeroDefinition.HeroKind.AFRASIAB
+	)
+	var feedback_duration: float = (
+		AFRASIAB_ACTIVE_FEEDBACK_DURATION
+		if is_afrasiab
+		else HERO_ACTIVE_FEEDBACK_DURATION
+	)
+
+	var effect_root := Node3D.new()
+	effect_root.name = "HeroActiveFeedback_%s" % hero_def.kind_name()
+	runtime_cards.add_child(effect_root)
+	effect_root.global_position = (
+		hero_view.global_position
+		+ Vector3(0.0, 0.14, 0.0)
+	)
+
+	# A thin glowing disk expands just above the Hero card, so it never
+	# disappears under the table/board mesh.
+	var pulse := MeshInstance3D.new()
+	pulse.name = "GroundPulse"
+	var pulse_mesh := CylinderMesh.new()
+	pulse_mesh.top_radius = (
+		HERO_ACTIVE_FEEDBACK_RADIUS * 1.22
+		if is_afrasiab
+		else HERO_ACTIVE_FEEDBACK_RADIUS
+	)
+	pulse_mesh.bottom_radius = pulse_mesh.top_radius
+	pulse_mesh.height = 0.012
+	pulse.mesh = pulse_mesh
+	pulse.scale = Vector3(0.20, 1.0, 0.20)
+	pulse.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	pulse.transparency = 0.08
+
+	var pulse_material := StandardMaterial3D.new()
+	pulse_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	if is_afrasiab:
+		# Poison Trap has its own unmistakable purple/green identity.
+		pulse_material.albedo_color = Color(0.72, 0.20, 0.96, 1.0)
+	elif player_id == local_player_id:
+		pulse_material.albedo_color = Color(0.20, 0.90, 1.0, 1.0)
+	else:
+		pulse_material.albedo_color = Color(1.0, 0.34, 0.26, 1.0)
+	pulse.material_override = pulse_material
+	effect_root.add_child(pulse)
+
+	# Afrasiab gets a second outer pulse so "armed" cannot be confused with a
+	# normal card highlight.
+	var outer_pulse: MeshInstance3D = null
+	if is_afrasiab:
+		outer_pulse = MeshInstance3D.new()
+		outer_pulse.name = "PoisonTrapOuterPulse"
+		var outer_mesh := CylinderMesh.new()
+		outer_mesh.top_radius = HERO_ACTIVE_FEEDBACK_RADIUS * 1.55
+		outer_mesh.bottom_radius = HERO_ACTIVE_FEEDBACK_RADIUS * 1.55
+		outer_mesh.height = 0.009
+		outer_pulse.mesh = outer_mesh
+		outer_pulse.scale = Vector3(0.18, 1.0, 0.18)
+		outer_pulse.cast_shadow = (
+			GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		)
+		outer_pulse.transparency = 0.22
+		var outer_material := StandardMaterial3D.new()
+		outer_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		outer_material.albedo_color = Color(0.36, 1.0, 0.34, 1.0)
+		outer_pulse.material_override = outer_material
+		effect_root.add_child(outer_pulse)
+
+	var label := Label3D.new()
+	label.name = "ActivePowerLabel"
+	label.position = Vector3(0.0, HERO_ACTIVE_FEEDBACK_RISE, 0.0)
+	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	label.no_depth_test = true
+	label.font_size = 42 if is_afrasiab else 34
+	label.outline_size = 10 if is_afrasiab else 8
+
+	if is_afrasiab:
+		label.text = (
+			"POISON TRAP ARMED!"
+			if player_id == local_player_id
+			else "ENEMY POISON TRAP ARMED!"
+		)
+	else:
+		label.text = (
+			"%s ACTIVE!" % hero_def.active_title
+			if player_id == local_player_id
+			else "OPPONENT: %s" % hero_def.active_title
+		)
+
+	effect_root.add_child(label)
+
+	# Make Afrasiab's card itself punch forward twice when the trap is armed.
+	if is_afrasiab:
+		var original_scale: Vector3 = hero_view.scale
+		var hero_pulse_tween := create_tween()
+		hero_pulse_tween.tween_property(
+			hero_view,
+			"scale",
+			original_scale * 1.13,
+			0.11
+		).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		hero_pulse_tween.tween_property(
+			hero_view,
+			"scale",
+			original_scale,
+			0.12
+		)
+		hero_pulse_tween.tween_property(
+			hero_view,
+			"scale",
+			original_scale * 1.08,
+			0.10
+		)
+		hero_pulse_tween.tween_property(
+			hero_view,
+			"scale",
+			original_scale,
+			0.14
+		)
+
+	var tween := create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(
+		pulse,
+		"scale",
+		Vector3(1.65, 1.0, 1.65),
+		feedback_duration
+	).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tween.tween_property(
+		pulse,
+		"transparency",
+		1.0,
+		feedback_duration
+	)
+	if outer_pulse != null:
+		tween.tween_property(
+			outer_pulse,
+			"scale",
+			Vector3(1.30, 1.0, 1.30),
+			feedback_duration
+		).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		tween.tween_property(
+			outer_pulse,
+			"transparency",
+			1.0,
+			feedback_duration
+		)
+	tween.tween_property(
+		label,
+		"position",
+		Vector3(0.0, HERO_ACTIVE_FEEDBACK_RISE + 0.22, 0.0),
+		feedback_duration
+	)
+
+	await tween.finished
+	if is_instance_valid(effect_root):
+		effect_root.queue_free()
+
+
+func _on_afrasiab_poison_inserted(
+	source_player_id: int,
+	target_player_id: int,
+	poison_cards: Array
+) -> void:
+	# Remote hidden planning updates MatchState immediately for lockstep, but
+	# must not leak private actions through VFX before Reveal.
+	if online_mode and online_remote_action_running:
+		return
+	_play_afrasiab_poison_insert_feedback(
+		source_player_id,
+		target_player_id,
+		poison_cards
+	)
+
+
+func _play_afrasiab_poison_insert_feedback(
+	source_player_id: int,
+	target_player_id: int,
+	poison_cards: Array
+) -> void:
+	if state == null:
+		return
+	if not is_instance_valid(runtime_cards):
+		return
+	if not is_instance_valid(game_layout):
+		return
+
+	var source_player: PlayerState = state.get_player(source_player_id)
+	if source_player == null or source_player.hero == null:
+		return
+
+	var hero_view := card_views.get(
+		source_player.hero.instance_id,
+		null
+	) as Card3D
+	if hero_view == null or not is_instance_valid(hero_view):
+		return
+
+	var draw_pile := game_layout.get_pile_entity(
+		target_player_id,
+		CardPile3D.Type.DRAW
+	)
+	if draw_pile == null:
+		return
+
+	var source_position: Vector3 = (
+		hero_view.global_position
+		+ Vector3(0.0, 0.24, 0.0)
+	)
+	var target_position: Vector3 = (
+		draw_pile.global_position
+		+ Vector3(0.0, 0.18, 0.0)
+	)
+
+	# Make the trap firing itself explicit before the two cards travel.
+	var trigger_root := Node3D.new()
+	trigger_root.name = "AfrasiabPoisonTriggered"
+	runtime_cards.add_child(trigger_root)
+	trigger_root.global_position = source_position
+
+	var trigger_label := Label3D.new()
+	trigger_label.name = "PoisonTrapTriggeredLabel"
+	trigger_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	trigger_label.no_depth_test = true
+	trigger_label.font_size = 38
+	trigger_label.outline_size = 10
+	trigger_label.text = "POISON TRAP TRIGGERED!"
+	trigger_root.add_child(trigger_label)
+
+	var trigger_tween := create_tween()
+	trigger_tween.set_parallel(true)
+	trigger_tween.tween_property(
+		trigger_label,
+		"position",
+		Vector3(0.0, 0.34, 0.0),
+		0.85
+	)
+	trigger_tween.tween_property(
+		trigger_label,
+		"modulate:a",
+		0.0,
+		0.85
+	)
+	trigger_tween.chain().tween_callback(
+		Callable(trigger_root, "queue_free")
+	)
+
+	# The pile itself flashes and explicitly reports the exact number added.
+	var pile_fx := Node3D.new()
+	pile_fx.name = "AfrasiabPoisonDrawPileFeedback"
+	runtime_cards.add_child(pile_fx)
+	pile_fx.global_position = target_position
+
+	var pile_pulse := MeshInstance3D.new()
+	var pile_mesh := CylinderMesh.new()
+	pile_mesh.top_radius = HERO_ACTIVE_FEEDBACK_RADIUS * 1.05
+	pile_mesh.bottom_radius = HERO_ACTIVE_FEEDBACK_RADIUS * 1.05
+	pile_mesh.height = 0.014
+	pile_pulse.mesh = pile_mesh
+	pile_pulse.scale = Vector3(0.20, 1.0, 0.20)
+	pile_pulse.cast_shadow = (
+		GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	)
+	pile_pulse.transparency = 0.10
+	var pile_material := StandardMaterial3D.new()
+	pile_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	pile_material.albedo_color = Color(0.58, 0.16, 0.92, 1.0)
+	pile_pulse.material_override = pile_material
+	pile_fx.add_child(pile_pulse)
+
+	var pile_label := Label3D.new()
+	pile_label.position = Vector3(0.0, 0.34, 0.0)
+	pile_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	pile_label.no_depth_test = true
+	pile_label.font_size = 38
+	pile_label.outline_size = 10
+	pile_label.text = "+%d POISON\nDRAW PILE" % poison_cards.size()
+	pile_fx.add_child(pile_label)
+
+	var pile_tween := create_tween()
+	pile_tween.set_parallel(true)
+	pile_tween.tween_property(
+		pile_pulse,
+		"scale",
+		Vector3(1.55, 1.0, 1.55),
+		1.15
+	).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	pile_tween.tween_property(
+		pile_pulse,
+		"transparency",
+		1.0,
+		1.15
+	)
+	pile_tween.tween_property(
+		pile_label,
+		"position",
+		Vector3(0.0, 0.54, 0.0),
+		1.15
+	)
+	pile_tween.chain().tween_callback(
+		Callable(pile_fx, "queue_free")
+	)
+
+	# Show the ACTUAL two Poison CardInstances face-up while they fly into the
+	# target Draw Pile. They remain in MatchState.zone == DRAW the entire time;
+	# these are temporary presentation views only.
+	for index: int in range(poison_cards.size()):
+		var poison := poison_cards[index] as CardInstance
+		if poison == null:
+			continue
+
+		var start_transform: Transform3D = hero_view.global_transform
+		var side: float = (
+			float(index)
+			- float(poison_cards.size() - 1) * 0.5
+		)
+		start_transform.origin = (
+			source_position
+			+ Vector3(side * 0.14, 0.0, 0.0)
+		)
+
+		var poison_view: Card3D = _create_card_view(
+			poison,
+			start_transform,
+			false,
+			true,
+			false
+		)
+		if poison_view == null:
+			continue
+
+		poison_view.is_draggable = false
+		poison_view.input_ray_pickable = false
+		poison_view.scale *= 0.90
+
+		var fly_delay: float = (
+			float(index) * AFRASIAB_POISON_FLY_STAGGER
+		)
+		var middle_position: Vector3 = (
+			(source_position + target_position) * 0.5
+			+ Vector3(
+				side * 0.18,
+				AFRASIAB_POISON_FLY_HEIGHT,
+				0.0
+			)
+		)
+		var final_position: Vector3 = (
+			target_position
+			+ Vector3(side * 0.06, 0.0, 0.0)
+		)
+
+		var fly_tween := create_tween()
+		if fly_delay > 0.0:
+			fly_tween.tween_interval(fly_delay)
+		fly_tween.tween_property(
+			poison_view,
+			"global_position",
+			middle_position,
+			AFRASIAB_POISON_FLY_TIME * 0.45
+		).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		fly_tween.tween_property(
+			poison_view,
+			"global_position",
+			final_position,
+			AFRASIAB_POISON_FLY_TIME * 0.55
+		).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+		fly_tween.tween_property(
+			poison_view,
+			"scale",
+			poison_view.scale * 0.16,
+			0.12
+		)
+		fly_tween.tween_callback(
+			Callable(poison_view, "queue_free")
+		)
+
+	# The stack/count can update immediately; the flying cards explain why.
+	_refresh_pile_entities()
+
+
+func _ensure_rush_sacrifice_control() -> void:
+	if is_instance_valid(rush_sacrifice_control):
+		return
+
+	if not is_instance_valid(hud):
+		return
+
+	rush_sacrifice_control = \
+		RUSH_SACRIFICE_CONTROL_SCRIPT.new() as RushSacrificeControl
+
+	if rush_sacrifice_control == null:
+		push_error("Could not create RushSacrificeControl.")
+		return
+
+	rush_sacrifice_control.name = "RushSacrificeControl"
+	hud.add_child(rush_sacrifice_control)
+	rush_sacrifice_control.sacrifice_drop_requested.connect(
+		Callable(self, "_on_rush_sacrifice_drop_requested")
+	)
+	rush_sacrifice_control.gesture_chosen.connect(
+		Callable(self, "_on_rush_sacrifice_gesture_chosen")
+	)
+	rush_sacrifice_control.choice_cancelled.connect(
+		Callable(self, "_on_rush_sacrifice_choice_cancelled")
+	)
+
+
+func _refresh_rush_sacrifice_ui() -> void:
+	if not is_instance_valid(rush_sacrifice_control):
+		return
+
+	var active: bool = (
+		state != null
+		and state.rush_mode_enabled
+	)
+	rush_sacrifice_control.set_rush_visible(active)
+
+	if not active:
+		return
+
+	var player: PlayerState = state.get_player(local_player_id)
+	if player != null:
+		rush_sacrifice_control.set_remaining_cards(
+			_get_rush_remaining_cards(player)
+		)
+
+	var available: bool = (
+		not interaction_locked
+		and state.phase == MatchPhase.Type.MAIN
+		and player != null
+		and not player.is_ready
+		and rush_sacrifice_target == null
+	)
+	rush_sacrifice_control.set_interaction_available(available)
+
+
+func _get_rush_remaining_cards(player: PlayerState) -> Array[CardInstance]:
+	var cards: Array[CardInstance] = []
+	if player == null:
+		return cards
+
+	# Keep every physical card instance that still belongs to the player.
+	# REMOVED cards are absent from all of these collections by design.
+	for card: CardInstance in player.board.get_occupied_cards():
+		if card != null and not card.is_hero():
+			cards.append(card)
+	for card: CardInstance in player.hand:
+		if card != null:
+			cards.append(card)
+	for card: CardInstance in player.draw_pile:
+		if card != null:
+			cards.append(card)
+	for card: CardInstance in player.discard_pile:
+		if card != null:
+			cards.append(card)
+	for card: CardInstance in player.reserve_pile:
+		if card != null:
+			cards.append(card)
+
+	cards.sort_custom(Callable(self, "_sort_rush_remaining_cards"))
+	return cards
+
+
+func _sort_rush_remaining_cards(a: CardInstance, b: CardInstance) -> bool:
+	if a == null or a.definition == null:
+		return false
+	if b == null or b.definition == null:
+		return true
+
+	var a_name: String = a.definition.display_name.to_lower()
+	var b_name: String = b.definition.display_name.to_lower()
+	if a_name == b_name:
+		return a.instance_id < b.instance_id
+	return a_name < b_name
+
+
+func _on_rush_sacrifice_drop_requested(
+	screen_position: Vector2
+) -> void:
+	if (
+		engine == null
+		or state == null
+		or not state.rush_mode_enabled
+		or interaction_locked
+	):
+		if is_instance_valid(rush_sacrifice_control):
+			rush_sacrifice_control.show_message(
+				"Sacrifice is only available during your Rush placement phase."
+			)
+		return
+
+	var target_view: Card3D = _get_card_view_under_screen_position(
+		screen_position
+	)
+	if target_view == null or target_view.card_instance == null:
+		rush_sacrifice_control.show_message(
+			"Release the arrow directly on one of your board cards."
+		)
+		return
+
+	var target_card: CardInstance = target_view.card_instance
+	if target_card.owner_id != local_player_id or target_card.zone != CardZone.Type.BOARD:
+		rush_sacrifice_control.show_message(
+			"Choose one of YOUR cards already on the board."
+		)
+		return
+
+	if not engine.can_rush_transform_card(local_player_id, target_card):
+		var player: PlayerState = state.get_player(local_player_id)
+		if player != null and player.board.get_occupied_cards().size() < 2:
+			rush_sacrifice_control.show_message(
+				"You need at least one OTHER card on your board to sacrifice."
+			)
+		else:
+			rush_sacrifice_control.show_message(
+				"That card cannot be transformed right now."
+			)
+		return
+
+	rush_sacrifice_target = target_card
+	interaction_locked = true
+	hud.set_interaction_enabled(false)
+	rush_sacrifice_control.set_interaction_available(false)
+	rush_sacrifice_control.show_gesture_choices(
+		target_card.get_gesture()
+	)
+
+
+func _get_card_view_under_screen_position(
+	screen_position: Vector2
+) -> Card3D:
+	if camera_3d == null:
+		return null
+
+	var ray_origin: Vector3 = camera_3d.project_ray_origin(screen_position)
+	var ray_direction: Vector3 = camera_3d.project_ray_normal(screen_position)
+	var query := PhysicsRayQueryParameters3D.create(
+		ray_origin,
+		ray_origin + ray_direction * 1000.0
+	)
+	query.collision_mask = 1
+	query.collide_with_areas = true
+	query.collide_with_bodies = false
+
+	var result: Dictionary = get_world_3d().direct_space_state.intersect_ray(query)
+	if result.is_empty():
+		return null
+
+	return result.get("collider", null) as Card3D
+
+
+func _on_rush_sacrifice_gesture_chosen(gesture: int) -> void:
+	var target_card: CardInstance = rush_sacrifice_target
+	if target_card == null or engine == null:
+		_finish_rush_sacrifice_interaction()
+		return
+
+	var selected_gesture: CardGesture.Type = gesture
+
+	if online_mode:
+		# No local mutation here. The server supplies the RNG seed and echoes the
+		# exact transform event to BOTH clients, including this sender.
+		_begin_online_public_action_request({
+			"kind": "rush_transform",
+			"target_id": target_card.instance_id,
+			"gesture": int(selected_gesture)
+		})
+		return
+
+	var removed_card: CardInstance = engine.apply_rush_transform(
+		local_player_id,
+		target_card,
+		selected_gesture
+	)
+
+	if removed_card == null:
+		if is_instance_valid(rush_sacrifice_control):
+			rush_sacrifice_control.show_message(
+				"Sacrifice could not be completed. No card was removed."
+			)
+		_finish_rush_sacrifice_interaction()
+		return
+
+	var target_view := card_views.get(target_card.instance_id, null) as Card3D
+	if target_view != null:
+		target_view.refresh_gesture_override_label()
+
+	var removed_view := card_views.get(removed_card.instance_id, null) as Card3D
+	if removed_view != null and is_instance_valid(removed_view):
+		var remove_duration: float = removed_view.play_rush_penalty_remove(
+			rush_penalty_raise_height,
+			rush_penalty_fade_time
+		)
+		if remove_duration > 0.0:
+			await get_tree().create_timer(remove_duration).timeout
+		card_views.erase(removed_card.instance_id)
+		if is_instance_valid(removed_view):
+			removed_view.queue_free()
+
+	_sync_visual_slots_for_player(local_player_id)
+	await _refresh_board_card_positions(local_player_id, true)
+	_refresh_board_shield_visuals(false)
+	if hud != null:
+		hud.refresh(state, local_player_id)
+	if is_instance_valid(rush_sacrifice_control):
+		rush_sacrifice_control.show_message(
+			"Type changed to %s. One other board card was permanently sacrificed."
+			% CardGesture.Type.keys()[target_card.get_gesture()]
+		)
+	_finish_rush_sacrifice_interaction()
+
+
+func _on_rush_sacrifice_choice_cancelled() -> void:
+	_finish_rush_sacrifice_interaction()
+
+
+func _finish_rush_sacrifice_interaction() -> void:
+	rush_sacrifice_target = null
+	if online_mode:
+		_refresh_online_interaction_gate()
+		return
+	interaction_locked = false
+	if hud != null:
+		hud.set_interaction_enabled(true)
+	_refresh_rush_sacrifice_ui()
+
+func _ensure_vfx_manager() -> void:
+	if is_instance_valid(vfx_manager):
+		return
+
+	var scene_root := get_parent() as Node3D
+
+	if scene_root == null:
+		push_error(
+			"MatchController3D needs a Node3D parent for RuntimeVFX."
+		)
+		return
+
+	var runtime_root := scene_root.get_node_or_null(
+		"RuntimeVFX"
+	) as Node3D
+
+	if runtime_root == null:
+		runtime_root = Node3D.new()
+		runtime_root.name = "RuntimeVFX"
+		scene_root.add_child(runtime_root)
+
+	var anchors := scene_root.get_node_or_null(
+		"VFXAnchors"
+	) as Node3D
+
+	if anchors == null:
+		anchors = Node3D.new()
+		anchors.name = "VFXAnchors"
+		scene_root.add_child(anchors)
+
+	var dealer_anchor := anchors.get_node_or_null(
+		"DealerVFXAnchor"
+	) as Node3D
+
+	if dealer_anchor == null:
+		dealer_anchor = Node3D.new()
+		dealer_anchor.name = "DealerVFXAnchor"
+		anchors.add_child(dealer_anchor)
+
+	var board_anchor := anchors.get_node_or_null(
+		"BoardVFXAnchor"
+	) as Node3D
+
+	if board_anchor == null:
+		board_anchor = Node3D.new()
+		board_anchor.name = "BoardVFXAnchor"
+		anchors.add_child(board_anchor)
+
+	vfx_manager = CardVFXManager3D.new()
+	vfx_manager.name = "CardVFXManager3D"
+	scene_root.add_child(vfx_manager)
+
+	vfx_manager.runtime_root = runtime_root
+	vfx_manager.dealer_anchor = dealer_anchor
+	vfx_manager.board_anchor = board_anchor
+
+	print("Runtime VFX manager created.")
+
+
+func _remove_legacy_resident_vfx() -> void:
+	# The active project scene is saved as binary, so old dealer VFX/markers
+	# may still be serialized there. Remove them immediately at runtime.
+	var legacy_nodes: Array[Node] = []
+
+	if is_instance_valid(saw_vfx_spawn):
+		legacy_nodes.append(saw_vfx_spawn)
+
+	if (
+		is_instance_valid(mustache_vfx_spawn)
+		and not legacy_nodes.has(mustache_vfx_spawn)
+	):
+		legacy_nodes.append(mustache_vfx_spawn)
+
+	var scene_root: Node = get_parent()
+
+	if scene_root != null:
+		for legacy_name: String in [
+			"SawVFXSpawn",
+			"sibilVFXSpawn"
+		]:
+			var legacy_node: Node = scene_root.find_child(
+				legacy_name,
+				true,
+				false
+			)
+
+			if (
+				is_instance_valid(legacy_node)
+				and not legacy_nodes.has(legacy_node)
+			):
+				legacy_nodes.append(legacy_node)
+
+	for legacy_node: Node in legacy_nodes:
+		if is_instance_valid(legacy_node):
+			legacy_node.queue_free()
+
+	saw_vfx_spawn = null
+	mustache_vfx_spawn = null
+	MUSTACHE_VFX_SCENE = null
+	SAW_DIRT_SCENE = null
+func begin_tutorial_match() -> void:
+	if state != null:
+		return
+
+	tutorial_enabled = true
+
+	await _start_match_with_selected_deck(
+		player_one_deck
+	)
+
+func begin_deck_selection() -> void:
+	if deck_selection_active:
+		return
+
+	if state != null:
+		return
+
+	deck_selection_active = true
+	interaction_locked = true
+	hud.visible = false
+	hud.set_interaction_enabled(false)
+
+	_show_deck_selection_screen()
+
+
+func begin_rush_match() -> void:
+	if state != null:
+		return
+
+	rush_mode_enabled = true
+	tutorial_enabled = false
+	await _start_match_with_selected_deck(
+		RUSH_DECK
+	)
+
+
+func begin_online_match(payload: Dictionary) -> void:
+	if state != null:
+		return
+	if payload.is_empty():
+		push_error("Online match payload is empty.")
+		return
+
+	online_mode = true
+	online_match_payload = payload.duplicate(true)
+	online_match_seed = maxi(1, int(payload.get("match_seed", 1)))
+	local_player_id = int(payload.get("seat", 1))
+	if local_player_id not in [1, 2]:
+		local_player_id = 1
+
+	# GameLayout._ready() runs before the online seat is known.
+	# Refresh CardPlace ownership now so visual side 1 ("me") belongs to the
+	# actual local seat. This fixes Seat 2 normal cards and Hero placement.
+	if game_layout != null and game_layout.has_method(&"set_local_view_player_id"):
+		game_layout.set_local_view_player_id(local_player_id)
+
+	bot_player_id = 2 if local_player_id == 1 else 1
+	rush_mode_enabled = String(payload.get("mode", "normal")) == "rush"
+	tutorial_enabled = false
+	ProjectSettings.set_setting("gameplay/hardcore_bot", false)
+
+	online_session = get_node_or_null("/root/OnlineSession")
+	if online_session == null:
+		push_error("OnlineSession autoload is missing.")
+		online_mode = false
+		return
+	_connect_online_session_signals()
+
+	deck_selection_active = false
+	interaction_locked = true
+	hud.visible = false
+	hud.set_interaction_enabled(false)
+
+	if rush_mode_enabled:
+		await _start_online_match_from_payload(payload)
+		return
+
+	await _begin_online_normal_setup(payload)
+
+
+func _begin_online_normal_setup(payload: Dictionary) -> void:
+	online_match_payload = payload.duplicate(true)
+
+	if game_layout != null and game_layout.has_method(&"set_local_view_player_id"):
+		game_layout.set_local_view_player_id(local_player_id)
+	var local_setup := _online_setup_for_player(
+		payload,
+		local_player_id
+	)
+	var opponent_setup := _online_setup_for_player(
+		payload,
+		bot_player_id
+	)
+
+	var local_has_deck := _online_setup_has_deck(local_setup)
+	var opponent_has_deck := _online_setup_has_deck(opponent_setup)
+
+	if local_has_deck and opponent_has_deck:
+		await _start_online_after_deck_setup(payload)
+		return
+
+	if local_has_deck:
+		online_setup_stage = "waiting_deck"
+		print("ONLINE SETUP | waiting for opponent deck")
+		return
+
+	online_setup_stage = "deck"
+	deck_selection_active = true
+	interaction_locked = true
+	hud.visible = false
+	hud.set_interaction_enabled(false)
+	_show_deck_selection_screen()
+	print("ONLINE SETUP | choose local deck")
+
+
+func _connect_online_session_signals() -> void:
+	if online_session == null:
+		return
+	var setup_callable := Callable(self, "_on_online_match_setup_ready")
+	if not online_session.match_setup_ready.is_connected(setup_callable):
+		online_session.match_setup_ready.connect(setup_callable)
+	var reveal_callable := Callable(self, "_on_online_turn_reveal")
+	if not online_session.turn_reveal.is_connected(reveal_callable):
+		online_session.turn_reveal.connect(reveal_callable)
+	var public_callable := Callable(self, "_on_online_public_action")
+	if not online_session.public_action_received.is_connected(public_callable):
+		online_session.public_action_received.connect(public_callable)
+	var disconnected_callable := Callable(self, "_on_online_opponent_disconnected")
+	if not online_session.opponent_disconnected.is_connected(disconnected_callable):
+		online_session.opponent_disconnected.connect(disconnected_callable)
+	var reconnected_callable := Callable(self, "_on_online_opponent_reconnected")
+	if not online_session.opponent_reconnected.is_connected(reconnected_callable):
+		online_session.opponent_reconnected.connect(reconnected_callable)
+
+	var hidden_ack_cb := Callable(self, "_on_online_hidden_action_accepted")
+	if not online_session.hidden_action_accepted.is_connected(hidden_ack_cb):
+		online_session.hidden_action_accepted.connect(hidden_ack_cb)
+	var hidden_state_cb := Callable(self, "_on_online_hidden_state_action")
+	if not online_session.hidden_state_action.is_connected(hidden_state_cb):
+		online_session.hidden_state_action.connect(hidden_state_cb)
+	var ready_ack_cb := Callable(self, "_on_online_turn_ready_accepted")
+	if not online_session.turn_ready_accepted.is_connected(ready_ack_cb):
+		online_session.turn_ready_accepted.connect(ready_ack_cb)
+	var combat_start_cb := Callable(self, "_on_online_combat_start")
+	if not online_session.combat_start.is_connected(combat_start_cb):
+		online_session.combat_start.connect(combat_start_cb)
+	var turn_start_cb := Callable(self, "_on_online_turn_start")
+	if not online_session.turn_start.is_connected(turn_start_cb):
+		online_session.turn_start.connect(turn_start_cb)
+	var desync_cb := Callable(self, "_on_online_state_desync")
+	if not online_session.state_desync.is_connected(desync_cb):
+		online_session.state_desync.connect(desync_cb)
+	var game_over_cb := Callable(self, "_on_online_game_over_commit")
+	if not online_session.game_over_commit.is_connected(game_over_cb):
+		online_session.game_over_commit.connect(game_over_cb)
+	var transport_down_cb := Callable(self, "_on_online_transport_interrupted")
+	if not online_session.transport_interrupted.is_connected(transport_down_cb):
+		online_session.transport_interrupted.connect(transport_down_cb)
+	var transport_up_cb := Callable(self, "_on_online_transport_restored")
+	if not online_session.transport_restored.is_connected(transport_up_cb):
+		online_session.transport_restored.connect(transport_up_cb)
+
+
+func _online_setup_for_player(payload: Dictionary, player_id: int) -> Dictionary:
+	var players: Dictionary = payload.get("players", {}) as Dictionary
+	var player_data: Dictionary = players.get(str(player_id), {}) as Dictionary
+	return player_data.get("setup", {}) as Dictionary
+
+
+func _online_deck_from_index(index: int) -> DeckDefinition:
+	# Backward-compatible fallback for older setup payloads.
+	match index:
+		2:
+			return player_one_deck_2 if player_one_deck_2 != null else player_one_deck
+		3:
+			return player_one_deck_3 if player_one_deck_3 != null else player_one_deck
+		_:
+			return player_one_deck
+
+
+func _online_index_for_deck(selected_deck: DeckDefinition) -> int:
+	# Preset index is kept only as a compatibility/debug field.
+	# Custom decks are NOT represented by this value.
+	if selected_deck == player_one_deck_2:
+		return 2
+	if selected_deck == player_one_deck_3:
+		return 3
+	return 1
+
+
+func _online_serialize_deck(deck: DeckDefinition) -> Array:
+	var result: Array = []
+	if deck == null:
+		return result
+
+	for entry: DeckEntry in deck.entries:
+		if entry == null or entry.card == null:
+			continue
+
+		var card_path: String = entry.card.resource_path
+		if card_path.is_empty():
+			push_warning(
+				"ONLINE DECK | card has no resource_path: %s"
+				% entry.card.display_name
+			)
+			continue
+
+		var copies: int = int(entry.copies)
+		if copies <= 0:
+			continue
+
+		result.append({
+			"card_path": card_path,
+			"copies": copies
+		})
+
+	return result
+
+
+func _online_setup_has_deck(setup: Dictionary) -> bool:
+	var raw_entries: Variant = setup.get("deck_entries", [])
+	if raw_entries is Array and not raw_entries.is_empty():
+		return true
+
+	# Backward compatibility with older servers/clients.
+	return int(setup.get("deck_index", 0)) in [1, 2, 3]
+
+
+func _online_deck_from_setup(setup: Dictionary) -> DeckDefinition:
+	var raw_entries: Variant = setup.get("deck_entries", [])
+
+	if raw_entries is Array and not raw_entries.is_empty():
+		var deck := DeckDefinition.new()
+		var total_cards: int = 0
+
+		for raw_entry: Variant in raw_entries:
+			if not (raw_entry is Dictionary):
+				continue
+
+			var entry_data: Dictionary = raw_entry
+			var card_path: String = String(
+				entry_data.get("card_path", "")
+			).strip_edges()
+			var copies: int = int(entry_data.get("copies", 0))
+
+			if card_path.is_empty() or copies <= 0:
+				continue
+
+			var card := load(card_path) as CardDefinition
+			if card == null:
+				push_error(
+					"ONLINE DECK | could not load card: %s"
+					% card_path
+				)
+				return _online_deck_from_index(
+					int(setup.get("deck_index", 1))
+				)
+
+			var deck_entry := DeckEntry.new()
+			deck_entry.card = card
+			deck_entry.copies = copies
+			deck.entries.append(deck_entry)
+			total_cards += copies
+
+		var expected_size: int = 18
+		if deck_builder_settings != null:
+			expected_size = int(deck_builder_settings.deck_size)
+
+		if total_cards == expected_size and not deck.entries.is_empty():
+			return deck
+
+		push_error(
+			"ONLINE DECK | invalid synced deck size: %d (expected %d)"
+			% [total_cards, expected_size]
+		)
+
+	# Older payload fallback.
+	return _online_deck_from_index(
+		int(setup.get("deck_index", 1))
+	)
+
+
+func _online_hero_name(hero_definition: HeroDefinition) -> String:
+	if hero_definition == TAHMINEH_HERO:
+		return "tahmineh"
+	if hero_definition == AFRASIAB_HERO:
+		return "afrasiab"
+	return "rostam"
+
+
+func _online_slot_name(slot_id: int) -> String:
+	match slot_id:
+		SlotID.Type.FRONT_LEFT:
+			return "front_left"
+		SlotID.Type.FRONT_MIDDLE_0:
+			return "front_middle_0"
+		SlotID.Type.FRONT_MIDDLE_1:
+			return "front_middle_1"
+		SlotID.Type.FRONT_RIGHT:
+			return "front_right"
+		SlotID.Type.BACK_LEFT:
+			return "back_left"
+		SlotID.Type.BACK_MIDDLE_0:
+			return "back_middle_0"
+		SlotID.Type.BACK_MIDDLE_1:
+			return "back_middle_1"
+		SlotID.Type.BACK_RIGHT:
+			return "back_right"
+		_:
+			return "front_left"
+
+
+func _online_hero_from_name(hero_name: String) -> HeroDefinition:
+	match hero_name.to_lower():
+		"tahmineh":
+			return TAHMINEH_HERO
+		"afrasiab":
+			return AFRASIAB_HERO
+		_:
+			return ROSTAM_HERO
+
+
+func _online_slot_from_name(slot_name: String) -> int:
+	match slot_name.to_lower():
+		"front_left":
+			return SlotID.Type.FRONT_LEFT
+		"front_middle_0":
+			return SlotID.Type.FRONT_MIDDLE_0
+		"front_middle_1":
+			return SlotID.Type.FRONT_MIDDLE_1
+		"front_right":
+			return SlotID.Type.FRONT_RIGHT
+		"back_left":
+			return SlotID.Type.BACK_LEFT
+		"back_middle_0":
+			return SlotID.Type.BACK_MIDDLE_0
+		"back_middle_1":
+			return SlotID.Type.BACK_MIDDLE_1
+		"back_right":
+			return SlotID.Type.BACK_RIGHT
+		_:
+			return SlotID.Type.FRONT_LEFT
+
+
+func _on_online_match_setup_ready(payload: Dictionary) -> void:
+	if not online_mode or rush_mode_enabled:
+		return
+	online_match_payload = payload.duplicate(true)
+	var stage := String(payload.get("stage", ""))
+
+	if stage == "deck" and state == null:
+		if online_setup_transition_running:
+			return
+		online_setup_transition_running = true
+		await _start_online_after_deck_setup(payload)
+		online_setup_transition_running = false
+		return
+
+	if stage == "hero" and state != null:
+		if online_setup_transition_running:
+			return
+		online_setup_transition_running = true
+		await _finalize_online_hero_setup(payload)
+		online_setup_transition_running = false
+
+
+func _start_online_after_deck_setup(payload: Dictionary) -> void:
+	if state != null:
+		return
+
+	online_match_payload = payload.duplicate(true)
+	online_setup_stage = "hero"
+
+	var p1_setup := _online_setup_for_player(payload, 1)
+	var p2_setup := _online_setup_for_player(payload, 2)
+	var p1_deck := _online_deck_from_setup(p1_setup)
+	var p2_deck := _online_deck_from_setup(p2_setup)
+
+	online_match_seed = maxi(1, int(payload.get("match_seed", online_match_seed)))
+	seed(online_match_seed)
+	engine = MatchEngine.new()
+	var poison_feedback_callable := Callable(
+		self,
+		"_on_afrasiab_poison_inserted"
+	)
+	if not engine.afrasiab_poison_inserted.is_connected(
+		poison_feedback_callable
+	):
+		engine.afrasiab_poison_inserted.connect(
+			poison_feedback_callable
+		)
+
+	state = engine.start_match(
+		rules,
+		p1_deck,
+		p2_deck,
+		dealer_deck,
+		false
+	)
+	_apply_game_mode_visuals()
+
+	await _sync_visual_state()
+	hud.visible = true
+	hud.refresh(state, local_player_id)
+	hud.set_interaction_enabled(false)
+	interaction_locked = true
+
+	var local_setup := _online_setup_for_player(
+		payload,
+		local_player_id
+	)
+	var opponent_setup := _online_setup_for_player(
+		payload,
+		bot_player_id
+	)
+	var local_has_hero := (
+		not String(local_setup.get("hero_kind", "")).is_empty()
+		and not String(local_setup.get("hero_slot", "")).is_empty()
+	)
+	var opponent_has_hero := (
+		not String(opponent_setup.get("hero_kind", "")).is_empty()
+		and not String(opponent_setup.get("hero_slot", "")).is_empty()
+	)
+
+	if local_has_hero and opponent_has_hero:
+		await _finalize_online_hero_setup(payload)
+		return
+
+	if local_has_hero:
+		online_setup_stage = "waiting_hero"
+		print("ONLINE SETUP | waiting for opponent Hero")
+		return
+
+	_begin_online_local_hero_selection()
+
+
+func _begin_online_local_hero_selection() -> void:
+	if engine == null or state == null:
+		return
+
+	_ensure_hero_selection_control()
+	if not is_instance_valid(hero_selection_control):
+		return
+
+	hero_setup_definition = null
+	hero_setup_slot_id = -1
+	hero_setup_waiting = true
+	hero_opponent_selection_waiting = false
+	hero_ground_selection_active = false
+	online_setup_stage = "hero"
+
+	hero_selection_control.configure(
+		_get_available_heroes(),
+		"هیروی خودت را انتخاب کن",
+		"هیرو را انتخاب کن؛ بعد جای شروعش را روی زمین خودت مشخص کن."
+	)
+
+
+func _finalize_online_hero_setup(payload: Dictionary) -> void:
+	if engine == null or state == null:
+		return
+
+	online_match_payload = payload.duplicate(true)
+	online_setup_stage = "starting"
+
+	# Both clients place Heroes in the same fixed player-id order so all
+	# CardInstance ids stay deterministic.
+	for player_id: int in [1, 2]:
+		var player := state.get_player(player_id)
+		if player != null and player.hero != null:
+			continue
+
+		var setup := _online_setup_for_player(payload, player_id)
+		var hero_name := String(setup.get("hero_kind", ""))
+		var slot_name := String(setup.get("hero_slot", ""))
+		if hero_name.is_empty() or slot_name.is_empty():
+			return
+
+		var hero_def := _online_hero_from_name(hero_name)
+		var slot_id := _online_slot_from_name(slot_name)
+		var hero := engine.place_hero(
+			player_id,
+			hero_def,
+			slot_id
+		)
+		if hero != null:
+			hero.hero_revealed = player_id == local_player_id
+
+	_rebuild_visual_board_slots_from_state()
+
+	if is_instance_valid(hero_selection_control):
+		hero_selection_control.queue_free()
+		hero_selection_control = null
+
+	hero_setup_waiting = false
+	hero_ground_selection_active = false
+	_clear_hero_slot_highlights()
+
+	await _sync_visual_state()
+	hud.visible = true
+	hud.refresh(state, local_player_id)
+	_capture_online_public_opponent_hud_state()
+
+	if is_instance_valid(hero_power_control):
+		hero_power_control.bind_match(engine, local_player_id)
+	if is_instance_valid(hero_energy_control):
+		hero_energy_control.bind_match(engine, local_player_id)
+
+	interaction_locked = false
+	hud.set_interaction_enabled(true)
+	_refresh_rush_sacrifice_ui()
+	_refresh_balance_scale()
+	online_setup_stage = "playing"
+
+	print(
+		"ONLINE MATCH STARTED | seat=",
+		local_player_id,
+		" | deck+hero setup complete"
+	)
+
+
+func _start_online_match_from_payload(payload: Dictionary) -> void:
+	var p1_setup := _online_setup_for_player(payload, 1)
+	var p2_setup := _online_setup_for_player(payload, 2)
+	var match_rules: MatchRules = RUSH_MATCH_RULES if rush_mode_enabled else rules
+	var p1_deck: DeckDefinition
+	var p2_deck: DeckDefinition
+	if rush_mode_enabled:
+		p1_deck = RUSH_DECK
+		p2_deck = RUSH_DECK
+	else:
+		p1_deck = _online_deck_from_setup(p1_setup)
+		p2_deck = _online_deck_from_setup(p2_setup)
+
+	# Both clients start from the same global RNG seed. A fresh server seed is
+	# also supplied before every battle/next-turn shuffle, preventing visual RNG
+	# calls from desynchronising hidden deck order.
+	online_match_seed = maxi(1, int(payload.get("match_seed", online_match_seed)))
+	seed(online_match_seed)
+	engine = MatchEngine.new()
+	var poison_feedback_callable := Callable(self, "_on_afrasiab_poison_inserted")
+	if not engine.afrasiab_poison_inserted.is_connected(poison_feedback_callable):
+		engine.afrasiab_poison_inserted.connect(poison_feedback_callable)
+
+	state = engine.start_match(
+		match_rules,
+		p1_deck,
+		p2_deck,
+		dealer_deck,
+		rush_mode_enabled
+	)
+	_apply_game_mode_visuals()
+
+	# Place both Heroes in fixed player-id order so CardInstance ids are the
+	# same on both clients. Each client only reveals its own Hero until combat.
+	if not rush_mode_enabled:
+		for player_id: int in [1, 2]:
+			var setup := p1_setup if player_id == 1 else p2_setup
+			var hero_def := _online_hero_from_name(String(setup.get("hero_kind", "rostam")))
+			var slot_id := _online_slot_from_name(String(setup.get("hero_slot", "front_left")))
+			var hero := engine.place_hero(player_id, hero_def, slot_id)
+			if hero != null:
+				hero.hero_revealed = player_id == local_player_id
+
+	await _sync_visual_state()
+	hud.visible = true
+	hud.refresh(state, local_player_id)
+	_capture_online_public_opponent_hud_state()
+	if is_instance_valid(hero_power_control):
+		hero_power_control.bind_match(engine, local_player_id)
+	if is_instance_valid(hero_energy_control):
+		hero_energy_control.bind_match(engine, local_player_id)
+	interaction_locked = false
+	hud.set_interaction_enabled(true)
+	_refresh_rush_sacrifice_ui()
+	_refresh_balance_scale()
+	print("ONLINE MATCH STARTED | seat=", local_player_id, " | mode=", payload.get("mode", "normal"))
+
+
+func _show_deck_selection_screen() -> void:
+	if is_instance_valid(deck_selection_screen):
+		return
+
+	var decks: Array[DeckDefinition] = [
+		player_one_deck,
+		player_one_deck_2,
+		player_one_deck_3
+	]
+
+	var preview_overrides: Array[CardDefinition] = [
+		deck_one_preview_card,
+		deck_two_preview_card,
+		deck_three_preview_card
+	]
+
+	deck_selection_screen = \
+		DECK_SELECTION_SCREEN_SCRIPT.new() as DeckSelectionScreen
+
+	if deck_selection_screen == null:
+		push_error("Could not create DeckSelectionScreen.")
+		return
+
+	deck_selection_screen.configure(
+		deck_builder_settings,
+		decks,
+		preview_overrides
+	)
+	deck_selection_screen.deck_selected.connect(
+		Callable(self, "_on_deck_definition_selected")
+	)
+	add_child(deck_selection_screen)
+
+
+func _on_deck_definition_selected(
+	selected_deck: DeckDefinition
+) -> void:
+	if not deck_selection_active:
+		return
+
+	if selected_deck == null:
+		return
+
+	deck_selection_active = false
+	interaction_locked = true
+
+	if is_instance_valid(deck_selection_screen):
+		deck_selection_screen.queue_free()
+		deck_selection_screen = null
+
+	_clear_deck_choice_cards()
+	await get_tree().process_frame
+
+	if online_mode and not rush_mode_enabled:
+		online_setup_stage = "waiting_deck"
+		var serialized_deck: Array = _online_serialize_deck(selected_deck)
+
+		if serialized_deck.is_empty():
+			push_error(
+				"ONLINE DECK | selected deck could not be serialized."
+			)
+			deck_selection_active = true
+			online_setup_stage = "deck"
+			_show_deck_selection_screen()
+			return
+
+		if online_session != null:
+			online_session.submit_match_setup(
+				"deck",
+				{
+					# Kept for backward compatibility only.
+					"deck_index": _online_index_for_deck(
+						selected_deck
+					),
+					# This is now the authoritative online deck.
+					"deck_entries": serialized_deck
+				}
+			)
+
+		print(
+			"ONLINE SETUP | local deck submitted | entries=",
+			serialized_deck.size()
+		)
+		return
+
+	await _start_match_with_selected_deck(
+		selected_deck
+	)
+
+
+func _spawn_deck_choice_cards() -> void:
+	_clear_deck_choice_cards()
+
+	var decks: Array[DeckDefinition] = [
+		player_one_deck,
+		player_one_deck_2,
+		player_one_deck_3
+	]
+
+	var preview_overrides: Array[CardDefinition] = [
+		deck_one_preview_card,
+		deck_two_preview_card,
+		deck_three_preview_card
+	]
+
+	for index: int in range(decks.size()):
+		var selected_deck: DeckDefinition = decks[index]
+		var preview_definition: CardDefinition = \
+			_get_deck_preview_definition(
+				selected_deck,
+				preview_overrides[index]
+			)
+
+		if preview_definition == null:
+			push_error(
+				"Deck %d has no preview card." % (index + 1)
+			)
+			continue
+
+		var card_view := card_scene.instantiate() as Card3D
+
+		if card_view == null:
+			push_error("Card scene root must be Card3D.")
+			continue
+
+		runtime_cards.add_child(card_view)
+
+		var preview_instance := CardInstance.new(
+			-1000 - index,
+			preview_definition,
+			local_player_id
+		)
+
+		var target_transform: Transform3D = \
+			_get_deck_choice_transform(index)
+
+		card_view.setup(
+			preview_instance,
+			target_transform,
+			false,
+			true
+		)
+
+		card_view.drag_requested.connect(
+			Callable(
+				self,
+				"_on_deck_choice_selected"
+			).bind(selected_deck)
+		)
+
+		deck_choice_cards.append(card_view)
+
+	# Small entrance animation.
+	for index: int in range(deck_choice_cards.size()):
+		var card_view: Card3D = deck_choice_cards[index]
+		var target_scale: Vector3 = card_view.scale
+		card_view.scale = target_scale * 0.02
+
+		var tween: Tween = create_tween()
+		tween.set_trans(Tween.TRANS_BACK)
+		tween.set_ease(Tween.EASE_OUT)
+		tween.tween_property(
+			card_view,
+			"scale",
+			target_scale,
+			deck_choice_animation_time
+		)
+
+		await get_tree().create_timer(0.07).timeout
+
+	for card_view: Card3D in deck_choice_cards:
+		card_view.is_draggable = true
+
+	print("Choose one of the three deck cards.")
+
+
+func _get_deck_preview_definition(
+	deck: DeckDefinition,
+	override_definition: CardDefinition
+) -> CardDefinition:
+	if override_definition != null:
+		return override_definition
+
+	if deck == null:
+		return null
+
+	for entry: DeckEntry in deck.entries:
+		if entry == null:
+			continue
+
+		if entry.card != null:
+			return entry.card
+
+	return null
+
+
+func _get_deck_choice_transform(
+	index: int
+) -> Transform3D:
+	var camera_transform: Transform3D = camera_3d.global_transform
+
+	var camera_right: Vector3 = \
+		camera_transform.basis.x.normalized()
+	var camera_up: Vector3 = \
+		camera_transform.basis.y.normalized()
+	var camera_forward: Vector3 = \
+		-camera_transform.basis.z.normalized()
+
+	var horizontal_offset: float = \
+		(float(index) - 1.0) * deck_choice_spacing
+
+	var target_position: Vector3 = (
+		camera_transform.origin
+		+ camera_forward * deck_choice_distance
+		+ camera_right * horizontal_offset
+		+ camera_up * deck_choice_vertical_offset
+	)
+
+	# Card3D's front normal is its local +Y axis.
+	# Point +Y back toward the camera and keep the card upright.
+	var facing_basis := Basis(
+		camera_right,
+		-camera_forward,
+		-camera_up
+	)
+
+	facing_basis = facing_basis.scaled(
+		Vector3.ONE * deck_choice_scale
+	)
+
+	return Transform3D(
+		facing_basis,
+		target_position
+	)
+
+
+func _on_deck_choice_selected(
+	selected_card_view: Card3D,
+	selected_deck: DeckDefinition
+) -> void:
+	if not deck_selection_active:
+		return
+
+	if selected_card_view == null:
+		return
+
+	if selected_deck == null:
+		return
+
+	deck_selection_active = false
+
+	for card_view: Card3D in deck_choice_cards:
+		card_view.is_draggable = false
+
+	var selection_tween: Tween = create_tween()
+	selection_tween.set_parallel(true)
+	selection_tween.set_trans(Tween.TRANS_BACK)
+	selection_tween.set_ease(Tween.EASE_IN_OUT)
+
+	for card_view: Card3D in deck_choice_cards:
+		if card_view == selected_card_view:
+			var toward_camera: Vector3 = (
+				camera_3d.global_position
+				- card_view.global_position
+			).normalized()
+
+			selection_tween.tween_property(
+				card_view,
+				"global_position",
+				card_view.global_position + toward_camera * 0.35,
+				deck_choice_animation_time
+			)
+			selection_tween.tween_property(
+				card_view,
+				"scale",
+				card_view.scale * 1.15,
+				deck_choice_animation_time
+			)
+		else:
+			selection_tween.tween_property(
+				card_view,
+				"scale",
+				Vector3.ZERO,
+				deck_choice_animation_time
+			)
+
+	await selection_tween.finished
+
+	_clear_deck_choice_cards()
+	await get_tree().process_frame
+
+	await _start_match_with_selected_deck(
+		selected_deck
+	)
+
+
+func _clear_deck_choice_cards() -> void:
+	for card_view: Card3D in deck_choice_cards:
+		if is_instance_valid(card_view):
+			card_view.queue_free()
+
+	deck_choice_cards.clear()
+
+
+func _start_match_with_selected_deck(
+	selected_deck: DeckDefinition
+) -> void:
+	var match_rules: MatchRules = rules
+	var match_player_one_deck: DeckDefinition = selected_deck
+	var match_player_two_deck: DeckDefinition = player_two_deck
+
+	if rush_mode_enabled:
+		match_rules = RUSH_MATCH_RULES
+		match_player_one_deck = RUSH_DECK
+		match_player_two_deck = RUSH_DECK
+	else:
+		player_one_deck = selected_deck
+
+	engine = MatchEngine.new()
+	var poison_feedback_callable := Callable(
+		self,
+		"_on_afrasiab_poison_inserted"
+	)
+	if not engine.afrasiab_poison_inserted.is_connected(
+		poison_feedback_callable
+	):
+		engine.afrasiab_poison_inserted.connect(
+			poison_feedback_callable
+		)
+
+	state = engine.start_match(
+		match_rules,
+		match_player_one_deck,
+		match_player_two_deck,
+		dealer_deck,
+		rush_mode_enabled
+	)
+
+	_apply_game_mode_visuals()
+
+	if tutorial_enabled:
+		_ensure_tutorial_controller()
+		if tutorial_controller != null:
+			tutorial_controller.prepare_match_state()
+
+	# Fair Bot memorizes the public board before either secret Hero is placed.
+	_capture_fair_bot_knowledge()
+
+	# Show the real Dealer/table first. Hero position selection happens on the
+	# actual ground after this point, so the Dealer hand remains visible.
+	await _sync_visual_state()
+	hud.visible = true
+	hud.refresh(state, local_player_id)
+	hud.set_interaction_enabled(false)
+	interaction_locked = true
+
+	await _setup_match_heroes()
+	# Hero placement happened after the first visual sync. Sync once more so
+	# the local Hero appears on its chosen board slot immediately while the
+	# opponent Hero is still filtered out by hero_revealed == false.
+	await _sync_visual_state()
+	if is_instance_valid(hero_power_control):
+		hero_power_control.bind_match(engine, local_player_id)
+	if is_instance_valid(hero_energy_control):
+		hero_energy_control.bind_match(engine, local_player_id)
+
+	hud.refresh(state, local_player_id)
+	hud.set_interaction_enabled(true)
+	interaction_locked = false
+	_refresh_rush_sacrifice_ui()
+	_refresh_balance_scale()
+
+	if tutorial_enabled and tutorial_controller != null:
+		tutorial_controller.start()
+
+	print(
+		"Rush match started with normal decks."
+		if rush_mode_enabled
+		else "Match started with selected player deck."
+	)
+
+
+func _apply_game_mode_visuals() -> void:
+	if is_instance_valid(game_layout):
+		var dealer_row := game_layout.get_node_or_null(
+			"DealerRow"
+		) as Node3D
+
+		if dealer_row != null:
+			dealer_row.visible = not rush_mode_enabled
+
+	if is_instance_valid(balance_scale):
+		# Normal mode no longer uses score-difference victory, so the scale is
+		# obsolete. Rush already did not use it either.
+		balance_scale.visible = false
+
+	_refresh_rush_sacrifice_ui()
+
+
+func _ensure_tutorial_controller() -> void:
+	if is_instance_valid(tutorial_controller):
+		return
+
+	tutorial_controller = TutorialController.new()
+	tutorial_controller.name = "TutorialController"
+	add_child(tutorial_controller)
+	tutorial_controller.setup(self)
+
+
+func refresh_tutorial_visual_state() -> void:
+	# Public tutorial-only bridge: rebuild the 3D card views after the
+	# deterministic tutorial changes hands / boards directly.
+	await _sync_visual_state()
+
+	if tutorial_controller != null and tutorial_controller.is_active():
+		tutorial_controller.sync_visual_visibility()
+
+	if hud != null:
+		hud.refresh(
+			state,
+			local_player_id
+		)
+
+	_refresh_balance_scale()
+
+
+func play_tutorial_collector_vfx_now() -> void:
+	# The reference tutorial shows Collector pulling Rock cards immediately
+	# after it is placed. Reuse the project's existing Collector VFX sequence;
+	# TutorialController performs the tutorial-only state change afterwards.
+	await _play_collector_vfx_before_combat()
+
+
+func _capture_fair_bot_knowledge() -> void:
+	if bot_controller == null:
+		return
+
+	if state == null:
+		return
+
+	bot_controller.capture_fair_opponent_snapshot(
+		state,
+		local_player_id
+	)
+
+
+func _prepare_bot_turn() -> void:
+	if online_mode:
+		return
+	if state == null:
+		return
+
+	if state.phase != MatchPhase.Type.MAIN:
+		return
+
+	var bot: PlayerState = state.get_player(
+		bot_player_id
+	)
+
+	if bot == null:
+		return
+
+	if bot.is_ready:
+		return
+
+	pending_bot_plays.clear()
+
+	engine.clear_play_records(
+		bot_player_id
+	)
+
+	var used_tutorial_script: bool = false
+	if tutorial_controller != null and tutorial_controller.is_active():
+		used_tutorial_script = tutorial_controller.execute_scripted_bot_turn()
+
+	if not used_tutorial_script:
+		_try_bot_special_attack()
+		if state.is_game_over():
+			return
+		# First chance: use an already-good Hero active before spending mana.
+		_try_bot_hero_active()
+		bot_controller.play_turn(
+			engine,
+			bot_player_id
+		)
+		# Second chance: the bot may have moved its Hero, changed a matchup,
+		# or created a new Poison/Fury opportunity during play_turn().
+		# try_activate_hero_power() is safe to call twice because the engine
+		# rejects a Hero active that was already used this turn.
+		_try_bot_hero_active()
+
+	pending_bot_plays = engine.consume_play_records(
+		bot_player_id
+	)
+
+	engine.set_player_ready(
+		bot_player_id
+	)
+
+	print(
+		"Bot completed hidden planning with ",
+		pending_bot_plays.size(),
+		" plays."
+	)
+
+func _get_board_card_ids(
+	player_id: int
+) -> Dictionary:
+	var result: Dictionary = {}
+
+	var player: PlayerState = state.get_player(
+		player_id
+	)
+
+	if player == null:
+		return result
+
+	for slot_id: int in SlotID.all_slots():
+		var card: CardInstance = player.board.get_card(
+			slot_id
+		)
+
+		if card != null:
+			result[card.instance_id] = true
+
+	return result
+
+
+func _get_cards_not_in_snapshot(
+	player_id: int,
+	previous_card_ids: Dictionary
+) -> Array[CardInstance]:
+	var result: Array[CardInstance] = []
+
+	var player: PlayerState = state.get_player(
+		player_id
+	)
+
+	if player == null:
+		return result
+
+	for slot_id: int in SlotID.all_slots():
+		var card: CardInstance = player.board.get_card(
+			slot_id
+		)
+
+		if card == null:
+			continue
+
+		if not previous_card_ids.has(card.instance_id):
+			result.append(card)
+
+	return result
+
+
+func _on_end_turn_pressed() -> void:
+	if interaction_locked:
+		return
+
+	if (
+		tutorial_controller != null
+		and tutorial_controller.is_active()
+		and not tutorial_controller.can_press_end_turn()
+	):
+		tutorial_controller.notify_wrong_action()
+		return
+
+	if state == null:
+		return
+
+	var player: PlayerState = state.get_player(
+		local_player_id
+	)
+
+	if player == null:
+		return
+
+	if player.is_ready:
+		return
+
+	# Online: the opponent is a real client. Their hidden plays stay on the
+	# Python relay until both players lock the turn; no bot planning runs here.
+	if online_mode:
+		if not online_public_action_pending.is_empty():
+			return
+		var keep_ids: Array = []
+		for raw_id: Variant in kept_hand_card_ids.keys():
+			keep_ids.append(int(raw_id))
+		online_keep_ids_by_player[local_player_id] = keep_ids.duplicate()
+		online_turn_ready_pending = true
+		interaction_locked = true
+		_refresh_rush_sacrifice_ui()
+		hud.set_interaction_enabled(false)
+		hud.refresh(state, local_player_id)
+		if online_session != null:
+			online_session.ready_turn(state.turn_number, keep_ids)
+		return
+
+	# Bot بعد از قفل‌شدن Turn تصمیم می‌گیرد.
+	# FAIR فقط Snapshot عمومی ابتدای Turn را می‌بیند؛
+	# کارت جدید و Move مخفی همین Turn برایش قابل شناسایی نیست.
+	_prepare_bot_turn()
+	if state.is_game_over():
+		_finish_game()
+		return
+
+	var success: bool = engine.set_player_ready(
+		local_player_id
+	)
+
+	if not success:
+		return
+
+	if tutorial_controller != null and tutorial_controller.is_active():
+		tutorial_controller.notify_end_turn_pressed()
+
+	interaction_locked = true
+	_refresh_rush_sacrifice_ui()
+
+	hud.set_interaction_enabled(false)
+
+	hud.refresh(
+		state,
+		local_player_id
+	)
+
+	if _are_both_players_ready():
+		await _run_reveal_and_battle()
+
+
+func _queue_online_hidden_action(action: Dictionary) -> void:
+	if not online_mode or online_session == null or state == null:
+		return
+	online_session.queue_hidden_action(action, state.turn_number)
+
+
+func _send_online_public_action(action: Dictionary) -> void:
+	if not online_mode or online_session == null or state == null:
+		return
+	online_session.send_public_action(action, state.turn_number)
+
+
+func _find_card_instance_for_player(player_id: int, instance_id: int) -> CardInstance:
+	if state == null:
+		return null
+	var player: PlayerState = state.get_player(player_id)
+	if player == null:
+		return null
+	if player.hero != null and player.hero.instance_id == instance_id:
+		return player.hero
+	for slot_id: int in SlotID.all_slots():
+		var board_card: CardInstance = player.board.get_card(slot_id)
+		if board_card != null and board_card.instance_id == instance_id:
+			return board_card
+	for collection_variant: Variant in [
+		player.hand,
+		player.draw_pile,
+		player.discard_pile,
+		player.reserve_pile,
+		player.pending_hero_rewards,
+		player.pending_mommy_rewards
+	]:
+		var collection: Array = collection_variant as Array
+		for card: CardInstance in collection:
+			if card != null and card.instance_id == instance_id:
+				return card
+	return null
+
+
+func _capture_online_public_opponent_hud_state() -> void:
+	if not online_mode or state == null:
+		return
+	var opponent: PlayerState = state.get_player(bot_player_id)
+	if opponent == null:
+		return
+	online_public_opponent_mana = opponent.current_mana
+	online_public_opponent_mana_capacity = opponent.mana_capacity
+	online_public_opponent_score = opponent.score
+
+
+func _refresh_hud_without_hidden_opponent_leak() -> void:
+	if hud == null or state == null:
+		return
+	hud.refresh(state, local_player_id)
+
+	# During online planning, MatchState already contains the opponent's hidden
+	# actions. Keep only the opponent-facing HUD fields at their last PUBLIC
+	# values until Turn Reveal. Local mana/status still refresh normally.
+	if (
+		online_mode
+		and state.phase == MatchPhase.Type.MAIN
+		and online_last_reveal_turn != state.turn_number
+		and online_public_opponent_mana >= 0
+	):
+		if hud.opponent_mana_label != null:
+			hud.opponent_mana_label.text = (
+				"Opponent Mana: %d / %d"
+				% [
+					online_public_opponent_mana,
+					online_public_opponent_mana_capacity
+				]
+			)
+		if hud.opponent_score_label != null:
+			hud.opponent_score_label.text = (
+				"Opponent Score: %d"
+				% online_public_opponent_score
+			)
+
+
+func _build_online_hero_type_change(
+	hero: CardInstance,
+	source_card: CardInstance
+) -> Dictionary:
+	if hero == null or source_card == null:
+		return {}
+	if not hero.is_hero() or source_card.is_hero():
+		return {}
+	var old_type: int = int(hero.get_gesture())
+	var new_type: int = int(source_card.get_gesture())
+	if old_type == new_type:
+		return {}
+	return {
+		"hero_id": int(hero.instance_id),
+		"old_type": old_type,
+		"new_type": new_type
+	}
+
+
+func _verify_online_hero_type_change(
+	player_id: int,
+	action: Dictionary,
+	refresh_visual: bool = false
+) -> bool:
+	var raw_change: Variant = action.get("hero_type_change", null)
+	if raw_change == null:
+		return true
+	if not (raw_change is Dictionary):
+		return false
+	var change: Dictionary = raw_change as Dictionary
+	var player: PlayerState = state.get_player(player_id) if state != null else null
+	if player == null or player.hero == null:
+		return false
+	var hero: CardInstance = player.hero
+	if int(change.get("hero_id", -1)) != int(hero.instance_id):
+		return false
+	var expected_type := int(change.get("new_type", -1))
+	if int(hero.get_gesture()) != expected_type:
+		return false
+	if refresh_visual:
+		var hero_view := card_views.get(hero.instance_id, null) as Card3D
+		if hero_view != null and is_instance_valid(hero_view):
+			if hero_view.has_method("refresh_gesture_override_label"):
+				hero_view.call("refresh_gesture_override_label")
+	return true
+
+
+func _verify_online_server_hero_types(raw_types: Variant) -> bool:
+	if raw_types == null:
+		return true
+	if not (raw_types is Dictionary):
+		return false
+	var hero_types: Dictionary = raw_types as Dictionary
+	for player_id: int in [1, 2]:
+		var key := str(player_id)
+		if not hero_types.has(key):
+			continue
+		var player: PlayerState = state.get_player(player_id) if state != null else null
+		if player == null or player.hero == null:
+			return false
+		var expected_type := int(hero_types.get(key, -1))
+		var actual_type := int(player.hero.get_gesture())
+		if expected_type != actual_type:
+			push_error(
+				"ONLINE HERO TYPE MISMATCH | player=%d | server=%d | client=%d | turn=%d"
+				% [player_id, expected_type, actual_type, state.turn_number]
+			)
+			return false
+	return true
+
+
+func _refresh_all_hero_type_visuals() -> void:
+	if state == null:
+		return
+	for player_id: int in [1, 2]:
+		var player: PlayerState = state.get_player(player_id)
+		if player == null or player.hero == null:
+			continue
+		var hero_view := card_views.get(player.hero.instance_id, null) as Card3D
+		if hero_view == null or not is_instance_valid(hero_view):
+			continue
+		if hero_view.has_method("refresh_gesture_override_label"):
+			hero_view.call("refresh_gesture_override_label")
+
+
+func _apply_online_turn_reveal(payload: Dictionary) -> void:
+	if not online_mode or state == null or engine == null:
+		return
+	var reveal_turn := int(payload.get("turn", -1))
+	if reveal_turn != state.turn_number:
+		_report_online_client_fault("turn_reveal_mismatch")
+		return
+	if online_last_reveal_turn == reveal_turn:
+		return
+	online_last_reveal_turn = reveal_turn
+	online_resolving_turn = reveal_turn
+	online_waiting_for_combat_start = true
+	var meta: Dictionary = payload.get("meta", {}) as Dictionary
+	for player_id: int in [1, 2]:
+		var player_meta: Dictionary = meta.get(str(player_id), {}) as Dictionary
+		var raw_keep: Array = player_meta.get("keep_ids", []) as Array
+		var keep_ids: Array = []
+		for raw_id: Variant in raw_keep:
+			keep_ids.append(int(raw_id))
+		online_keep_ids_by_player[player_id] = keep_ids
+	if not _verify_online_server_hero_types(payload.get("hero_types", null)):
+		_report_online_client_fault("server_hero_type_mismatch_at_reveal")
+		return
+	# Opponent hidden actions were already applied silently in exact server
+	# sequence. Reveal only consumes their recorded plays for presentation.
+	pending_bot_plays = engine.consume_play_records(bot_player_id)
+	if not engine.set_player_ready(bot_player_id):
+		var remote_player: PlayerState = state.get_player(bot_player_id)
+		if remote_player == null or not remote_player.is_ready:
+			_report_online_client_fault("remote_ready_failed")
+			return
+	if not _are_both_players_ready():
+		_report_online_client_fault("reveal_before_both_ready")
+		return
+	await _run_reveal_visuals()
+	# Hidden moves / Hero covers may not have a dedicated reveal animation.
+	# Rebuild the board once before combat so visuals cannot stay behind the
+	# already-synchronized MatchState.
+	await _sync_visual_state()
+	_refresh_all_hero_type_visuals()
+	if not _verify_online_server_hero_types(payload.get("hero_types", null)):
+		_report_online_client_fault("server_hero_type_mismatch_after_visual_sync")
+		return
+	hud.refresh(state, local_player_id)
+	if online_session != null:
+		online_session.reveal_ready(reveal_turn)
+
+
+func _apply_online_remote_hidden_action(action: Dictionary) -> bool:
+	if state == null or engine == null:
+		return false
+	seed(maxi(1, int(action.get("_rng_seed", 1))))
+	var kind := String(action.get("kind", ""))
+	var applied := false
+	match kind:
+		"play":
+			var card := _find_card_instance_for_player(bot_player_id, int(action.get("card_id", -1)))
+			if card == null:
+				return false
+			applied = engine.play_card(bot_player_id, card, int(action.get("slot", -1)))
+		"move":
+			var moving_card := _find_card_instance_for_player(bot_player_id, int(action.get("card_id", -1)))
+			if moving_card == null:
+				return false
+			var from_slot := moving_card.current_slot
+			if not SlotID.is_valid(from_slot):
+				from_slot = int(action.get("from_slot", -1))
+			applied = engine.move_board_card(bot_player_id, from_slot, int(action.get("to_slot", -1)))
+	if not applied:
+		return false
+	# Remote actions stay visually hidden, but the underlying Hero state must
+	# already match the server-recorded transition before Reveal.
+	return _verify_online_hero_type_change(bot_player_id, action, false)
+
+
+func _apply_online_public_action(payload: Dictionary) -> void:
+	if not online_mode or state == null or engine == null:
+		return
+	var sender_seat := int(payload.get("sender_seat", bot_player_id))
+	var event_turn := int(payload.get("turn", state.turn_number))
+	var action: Dictionary = payload.get("action", {}) as Dictionary
+	var kind := String(action.get("kind", ""))
+	if event_turn != state.turn_number:
+		_report_online_client_fault("public_action_turn_mismatch_" + kind)
+		return
+	seed(maxi(1, int(payload.get("rng_seed", action.get("_rng_seed", 1)))))
+	match kind:
+		"hero_active":
+			if not _apply_online_hero_active_authoritatively(sender_seat):
+				_report_online_client_fault("hero_active_replay_failed")
+				return
+			_play_hero_active_ground_feedback(sender_seat)
+			_refresh_board_shield_visuals(true)
+			hud.refresh(state, local_player_id)
+		"special_attack":
+			if not engine.use_special_attack(sender_seat):
+				_report_online_client_fault("special_attack_replay_failed")
+				return
+			_play_special_attack_feedback(sender_seat)
+			_refresh_board_shield_visuals(true)
+			hud.refresh(state, local_player_id)
+		"rush_transform":
+			var target := _find_card_instance_for_player(sender_seat, int(action.get("target_id", -1)))
+			if target == null:
+				_report_online_client_fault("rush_target_missing")
+				return
+			var gesture: CardGesture.Type = int(action.get("gesture", 0))
+			var removed := engine.apply_rush_transform(sender_seat, target, gesture)
+			if removed == null:
+				_report_online_client_fault("rush_transform_replay_failed")
+				return
+			await _sync_visual_state()
+			hud.refresh(state, local_player_id)
+			_refresh_rush_sacrifice_ui()
+		_:
+			_report_online_client_fault("unknown_public_action_" + kind)
+			return
+	if sender_seat == local_player_id:
+		_finish_local_online_public_action_echo(kind)
+		if kind == "rush_transform":
+			_finish_rush_sacrifice_interaction()
+
+
+func _on_online_hidden_action_accepted(payload: Dictionary) -> void:
+	_enqueue_online_event("hidden_action_accepted", payload)
+
+func _on_online_hidden_state_action(payload: Dictionary) -> void:
+	_enqueue_online_event("hidden_state_action", payload)
+
+func _on_online_turn_ready_accepted(turn_number: int) -> void:
+	_enqueue_online_event("turn_ready_accepted", {"turn": turn_number})
+
+func _on_online_turn_reveal(payload: Dictionary) -> void:
+	_enqueue_online_event("turn_reveal", payload)
+
+func _on_online_public_action(payload: Dictionary) -> void:
+	_enqueue_online_event("public_action", payload)
+
+func _on_online_combat_start(payload: Dictionary) -> void:
+	_enqueue_online_event("combat_start", payload)
+
+func _on_online_turn_start(payload: Dictionary) -> void:
+	_enqueue_online_event("turn_start", payload)
+
+func _on_online_state_desync(payload: Dictionary) -> void:
+	_enqueue_online_event("state_desync", payload)
+
+func _on_online_game_over_commit(payload: Dictionary) -> void:
+	_enqueue_online_event("game_over_commit", payload)
+
+func _enqueue_online_event(event_type: String, payload: Dictionary) -> void:
+	online_server_event_queue.append({"type": event_type, "payload": payload.duplicate(true)})
+	if not online_server_event_worker_running:
+		_drain_online_events()
+
+func _drain_online_events() -> void:
+	if online_server_event_worker_running:
+		return
+	online_server_event_worker_running = true
+	_refresh_online_interaction_gate()
+	while not online_server_event_queue.is_empty():
+		var entry: Dictionary = online_server_event_queue.pop_front()
+		var event_type := String(entry.get("type", ""))
+		var payload: Dictionary = entry.get("payload", {}) as Dictionary
+		match event_type:
+			"hidden_action_accepted":
+				await _apply_online_hidden_action_accepted(payload)
+			"hidden_state_action":
+				_apply_online_hidden_state_action(payload)
+			"turn_ready_accepted":
+				_apply_online_turn_ready_accepted(int(payload.get("turn", 0)))
+			"turn_reveal":
+				await _apply_online_turn_reveal(payload)
+			"public_action":
+				await _apply_online_public_action(payload)
+			"combat_start":
+				await _apply_online_combat_start(payload)
+			"turn_start":
+				_apply_online_turn_start(payload)
+			"state_desync":
+				_apply_online_state_desync(payload)
+			"game_over_commit":
+				_apply_online_game_over_commit(payload)
+		if online_desync_locked:
+			break
+	online_server_event_worker_running = false
+	_refresh_online_interaction_gate()
+
+func _apply_online_hidden_state_action(payload: Dictionary) -> void:
+	if state == null or engine == null:
+		return
+	var event_turn := int(payload.get("turn", -1))
+	if event_turn != state.turn_number:
+		_report_online_client_fault("hidden_state_turn_mismatch")
+		return
+	if online_remote_record_turn != event_turn:
+		engine.clear_play_records(bot_player_id)
+		online_remote_record_turn = event_turn
+	var action: Dictionary = payload.get("action", {}) as Dictionary
+	online_remote_action_running = true
+	var applied := _apply_online_remote_hidden_action(action)
+	online_remote_action_running = false
+	if not applied:
+		_report_online_client_fault("remote_hidden_state_apply_failed")
+		return
+	if not _verify_online_server_hero_types(payload.get("hero_types", null)):
+		_report_online_client_fault("server_hero_type_mismatch_after_remote_hidden")
+
+
+func _apply_online_hidden_action_accepted(payload: Dictionary) -> void:
+	if state == null or engine == null:
+		return
+	if int(payload.get("turn", -1)) != state.turn_number:
+		_report_online_client_fault("hidden_ack_turn_mismatch")
+		return
+	if online_predicted_hidden_actions.is_empty():
+		_report_online_client_fault("unexpected_hidden_action_ack")
+		return
+
+	var action: Dictionary = payload.get("action", {}) as Dictionary
+	var expected: Dictionary = online_predicted_hidden_actions.pop_front()
+	if not _online_actions_match(expected, action):
+		_report_online_client_fault("hidden_action_ack_mismatch")
+		return
+
+	# The local MatchEngine already applied this action immediately at drop time.
+	# The server echo only confirms ordering/seed and must never replay the action.
+	if not _verify_online_hero_type_change(local_player_id, action, true):
+		_report_online_client_fault("local_hero_type_transition_mismatch")
+		return
+	if not _verify_online_server_hero_types(payload.get("hero_types", null)):
+		_report_online_client_fault("server_hero_type_mismatch_after_local_hidden")
+		return
+
+	online_hidden_action_pending = not online_predicted_hidden_actions.is_empty()
+	_refresh_online_interaction_gate()
+
+func _apply_online_turn_ready_accepted(turn_number: int) -> void:
+	if state == null or engine == null or not online_turn_ready_pending:
+		return
+	if turn_number != state.turn_number:
+		_report_online_client_fault("turn_ready_ack_mismatch")
+		return
+	if not engine.set_player_ready(local_player_id):
+		var player: PlayerState = state.get_player(local_player_id)
+		if player == null or not player.is_ready:
+			_report_online_client_fault("local_ready_apply_failed")
+			return
+	online_turn_ready_pending = false
+	_refresh_hud_without_hidden_opponent_leak()
+
+func _apply_online_combat_start(payload: Dictionary) -> void:
+	if state == null or engine == null:
+		return
+	var combat_turn := int(payload.get("turn", -1))
+	if combat_turn != state.turn_number or not online_waiting_for_combat_start:
+		_report_online_client_fault("combat_start_phase_mismatch")
+		return
+	if online_combat_started_turn == combat_turn:
+		return
+	online_combat_started_turn = combat_turn
+	online_resolving_turn = combat_turn
+	online_battle_seed = int(payload.get("battle_seed", 1))
+	online_next_turn_seed = int(payload.get("next_turn_seed", 1))
+	online_waiting_for_combat_start = false
+	online_waiting_for_turn_start = true
+	await _start_animated_combat()
+
+func _apply_online_turn_start(payload: Dictionary) -> void:
+	if state == null:
+		return
+	var server_turn := int(payload.get("turn", -1))
+	if server_turn != state.turn_number:
+		_report_online_client_fault("turn_start_mismatch")
+		return
+	if not _verify_online_server_hero_types(payload.get("hero_types", null)):
+		_report_online_client_fault("server_hero_type_mismatch_at_turn_start")
+		return
+	_refresh_all_hero_type_visuals()
+	_capture_online_public_opponent_hud_state()
+	online_waiting_for_turn_start = false
+	online_resolving_turn = -1
+	online_combat_started_turn = -1
+	online_last_reveal_turn = -1
+	online_remote_record_turn = -1
+	online_hidden_action_sequence = 0
+	online_predicted_hidden_actions.clear()
+	online_hidden_action_pending = false
+	_refresh_online_interaction_gate()
+
+func _apply_online_game_over_commit(payload: Dictionary) -> void:
+	if state == null:
+		return
+	var winner_seat := int(payload.get("winner_seat", 0))
+	if state.winner_id != winner_seat:
+		_report_online_client_fault("game_over_commit_winner_mismatch")
+		return
+	online_game_over_committed = true
+	_finish_game()
+
+
+func _apply_online_state_desync(payload: Dictionary) -> void:
+	online_desync_locked = true
+	interaction_locked = true
+	if hud != null:
+		hud.set_interaction_enabled(false)
+	push_error("ONLINE STATE DESYNC | " + String(payload.get("reason", "state_desync")))
+
+func _on_online_transport_interrupted() -> void:
+	if online_mode:
+		online_transport_is_interrupted = true
+		_refresh_online_interaction_gate()
+
+func _on_online_transport_restored() -> void:
+	if online_mode:
+		online_transport_is_interrupted = false
+		_refresh_online_interaction_gate()
+
+func _on_online_opponent_disconnected(reconnect_seconds: int) -> void:
+	if not online_mode:
+		return
+	online_opponent_is_disconnected = true
+	_refresh_online_interaction_gate()
+	push_warning("Opponent disconnected. Waiting up to %s seconds." % reconnect_seconds)
+
+func _on_online_opponent_reconnected() -> void:
+	if not online_mode:
+		return
+	online_opponent_is_disconnected = false
+	_refresh_online_interaction_gate()
+
+
+func _are_both_players_ready() -> bool:
+	if state == null:
+		return false
+
+	var player_one: PlayerState = state.get_player(1)
+	var player_two: PlayerState = state.get_player(2)
+
+	if player_one == null or player_two == null:
+		return false
+
+	return (
+		player_one.is_ready
+		and player_two.is_ready
+	)
+
+
+func _run_reveal_visuals() -> void:
+	await get_tree().create_timer(
+		bot_think_time
+	).timeout
+
+	# The opponent Hero is revealed in the SAME reveal phase as the opponent's
+	# Turn-1 cards. The local Hero was already visible immediately after the
+	# player chose its slot.
+	if engine != null and engine.reveal_all_heroes():
+		await _reveal_hidden_hero_views()
+
+	# مهم: اینجا دیگر همه کارت‌های Discardشده را یک‌جا حذف نمی‌کنیم.
+	# هر Play حریف مسئول نمایش و حذف کارت‌های مربوط به همان اکت است؛
+	# بنابراین اکت‌ها واقعاً یکی‌یکی دیده می‌شوند.
+	await _reveal_cards_one_by_one(
+		pending_local_cards,
+		pending_bot_plays
+	)
+
+	# Cleanup نهایی فقط برای Viewهایی که به هر دلیلی رکورد Reveal نداشتند.
+	_remove_discarded_card_views()
+
+	pending_local_cards.clear()
+	pending_bot_plays.clear()
+
+
+func _run_reveal_and_battle() -> void:
+	await _run_reveal_visuals()
+	if tutorial_controller != null and tutorial_controller.is_active():
+		await tutorial_controller.wait_before_combat()
+	await _start_animated_combat()
+
+
+func _reveal_cards_one_by_one(
+	player_cards: Array[CardInstance],
+	bot_plays: Array[CardPlayRecord]
+) -> void:
+	var maximum_count: int = max(
+		player_cards.size(),
+		bot_plays.size()
+	)
+
+	for index: int in range(maximum_count):
+		if index < player_cards.size():
+			await _pulse_existing_card(
+				player_cards[index]
+			)
+
+		if index < bot_plays.size():
+			await _reveal_bot_play(
+				bot_plays[index]
+			)
+
+			# اکت بعدی Bot تا وقتی اکت فعلی کامل نشده شروع نمی‌شود.
+			# این مکث باعث می‌شود چند Play پشت سر هم یک‌جا به نظر نرسند.
+			if bot_action_pause > 0.0:
+				await get_tree().create_timer(
+					bot_action_pause
+				).timeout
+
+	await _refresh_opponent_hand_positions()
+
+func _reveal_bot_play(
+	play_record: CardPlayRecord
+) -> void:
+	if play_record == null:
+		return
+
+	if play_record.card == null:
+		return
+
+	if (
+		play_record.type
+		== CardPlayRecord.Type.MOVE_BOARD_CARD
+	):
+		await _reveal_bot_board_move(
+			play_record
+		)
+
+		_apply_visual_board_snapshot(
+			bot_player_id,
+			play_record.board_slots_after
+		)
+		await _refresh_board_card_positions(
+			bot_player_id,
+			true
+		)
+		return
+
+	# For a new middle card, move already-visible survivors to their new
+	# public positions first. The new hidden card itself has no Card3D yet.
+	_apply_visual_board_snapshot(
+		bot_player_id,
+		play_record.board_slots_after
+	)
+	await _refresh_board_card_positions(
+		bot_player_id,
+		true
+	)
+
+	# Then reveal the new card at the position for THIS action snapshot only.
+	await _reveal_bot_card(
+		play_record.card,
+		play_record.slot_id,
+		play_record.board_slots_after
+	)
+
+	# Cover / ability removals for this exact play are shown now.
+	await _reveal_removed_card_views(
+		play_record.removed_cards
+	)
+
+	_apply_visual_board_snapshot(
+		bot_player_id,
+		play_record.board_slots_after
+	)
+	await _refresh_board_card_positions(
+		bot_player_id,
+		true
+	)
+
+
+func _reveal_bot_board_move(
+	play_record: CardPlayRecord
+) -> void:
+	if play_record == null or play_record.card == null:
+		return
+
+	var card_view := card_views.get(
+		play_record.card.instance_id,
+		null
+	) as Card3D
+
+	if card_view == null:
+		return
+
+	var target_place: CardPlace3D = \
+		game_layout.get_board_place(
+			bot_player_id,
+			play_record.slot_id
+		)
+
+	if target_place == null:
+		return
+
+	# اگر Move روی یک کارت دیگر Cover شده، اول همان کارت کنار می‌رود.
+	await _reveal_removed_card_views(
+		play_record.removed_cards
+	)
+
+	var target_transform: Transform3D = \
+		_get_board_visual_transform_from_snapshot(
+			bot_player_id,
+			play_record.slot_id,
+			play_record.board_slots_after
+		)
+	var start_position: Vector3 = \
+		card_view.global_position
+	var target_position: Vector3 = \
+		target_transform.origin
+	var middle_position: Vector3 = (
+		(start_position + target_position) / 2.0
+		+ Vector3.UP * reveal_drop_height
+	)
+
+	var tween: Tween = create_tween()
+	tween.tween_property(
+		card_view,
+		"global_position",
+		middle_position,
+		reveal_step_time * 0.45
+	).set_trans(
+		Tween.TRANS_QUAD
+	).set_ease(
+		Tween.EASE_OUT
+	)
+
+	tween.tween_property(
+		card_view,
+		"global_transform",
+		target_transform,
+		reveal_step_time * 0.55
+	).set_trans(
+		Tween.TRANS_QUAD
+	).set_ease(
+		Tween.EASE_IN
+	)
+
+	await tween.finished
+	card_view.move_home(target_transform)
+
+func _pulse_existing_card(
+	card: CardInstance
+) -> void:
+	var card_view := card_views.get(
+		card.instance_id,
+		null
+	) as Card3D
+
+	if card_view == null:
+		return
+
+	var original_position: Vector3 = \
+		card_view.global_position
+
+	var lifted_position: Vector3 = (
+		original_position
+		+ Vector3.UP * 0.12
+	)
+
+	var tween: Tween = create_tween()
+
+	tween.tween_property(
+		card_view,
+		"global_position",
+		lifted_position,
+		reveal_step_time * 0.5
+	)
+
+	tween.tween_property(
+		card_view,
+		"global_position",
+		original_position,
+		reveal_step_time * 0.5
+	)
+
+	await tween.finished
+
+
+func _reveal_bot_card(
+	card: CardInstance,
+	slot_id: int,
+	board_slots_after: Dictionary = {}
+) -> void:
+	var place: CardPlace3D = game_layout.get_board_place(
+		bot_player_id,
+		slot_id
+	)
+
+	if place == null:
+		push_error("Missing opponent board place.")
+		return
+
+	var target_transform: Transform3D = \
+		_get_board_visual_transform_from_snapshot(
+			bot_player_id,
+			slot_id,
+			board_slots_after
+		)
+
+	var card_view := opponent_hand_views.get(
+		card.instance_id,
+		null
+	) as Card3D
+
+	if card_view == null:
+		var start_transform: Transform3D = \
+			target_transform
+
+		start_transform.origin += \
+			Vector3.UP * reveal_drop_height
+
+		card_view = _create_card_view(
+			card,
+			start_transform,
+			false,
+			false,
+			false
+		)
+
+	if card_view == null:
+		return
+
+	opponent_hand_views.erase(
+		card.instance_id
+	)
+
+	var start_position: Vector3 = \
+		card_view.global_position
+
+	var target_position: Vector3 = \
+		target_transform.origin
+
+	var middle_position: Vector3 = (
+		(start_position + target_position) / 2.0
+		+ Vector3.UP * reveal_drop_height
+	)
+
+	var tween: Tween = create_tween()
+
+	tween.tween_property(
+		card_view,
+		"global_position",
+		middle_position,
+		reveal_step_time * 0.45
+	).set_trans(
+		Tween.TRANS_QUAD
+	).set_ease(
+		Tween.EASE_OUT
+	)
+
+	tween.tween_callback(
+		Callable(
+			card_view,
+			"set_face_up"
+		).bind(true)
+	)
+
+	tween.tween_property(
+		card_view,
+		"global_transform",
+		target_transform,
+		reveal_step_time * 0.55
+	).set_trans(
+		Tween.TRANS_QUAD
+	).set_ease(
+		Tween.EASE_IN
+	)
+
+	await tween.finished
+
+	card_view.move_home(
+		target_transform
+	)
+
+	card_views[
+		card.instance_id
+	] = card_view
+
+	var placed_vfx_duration: float = \
+		_play_card_placed_vfx(
+			card_view
+		)
+
+	await _play_card_placement_disable_sequence(
+		card_view,
+		placed_vfx_duration
+	)
+
+func _find_card_slot(
+	player_id: int,
+	target_card: CardInstance
+) -> int:
+	var player: PlayerState = state.get_player(
+		player_id
+	)
+
+	if player == null:
+		return -1
+
+	for slot_id: int in SlotID.all_slots():
+		var card: CardInstance = player.board.get_card(
+			slot_id
+		)
+
+		if card == target_card:
+			return slot_id
+
+	return -1
+
+
+func _sync_visual_state() -> void:
+	_clear_drop_highlight()
+	dragged_card = null
+
+	visual_board_slots = {
+		1: {},
+		2: {}
+	}
+	_rebuild_visual_board_slots_from_state()
+
+	for child: Node in runtime_cards.get_children():
+		child.queue_free()
+
+	card_views.clear()
+	opponent_hand_views.clear()
+
+	await get_tree().process_frame
+
+	_spawn_dealer_cards()
+
+	_spawn_board_cards(1)
+	_spawn_board_cards(2)
+
+	_spawn_hand_cards()
+	_spawn_opponent_hand_cards()
+	_refresh_board_disabled_visuals(false)
+	_refresh_board_shield_visuals(false)
+	_refresh_pile_entities()
+	_restore_local_board_dragging()
+
+
+func _restore_local_board_dragging() -> void:
+	if state == null:
+		return
+
+	var player: PlayerState = state.get_player(
+		local_player_id
+	)
+
+	if player == null:
+		return
+
+	var drag_callable := Callable(
+		self,
+		"_start_card_drag"
+	)
+
+	for slot_id: int in SlotID.all_slots():
+		var card: CardInstance = player.board.get_card(
+			slot_id
+		)
+
+		if card == null:
+			continue
+
+		var card_view := card_views.get(
+			card.instance_id,
+			null
+		) as Card3D
+
+		if card_view == null:
+			continue
+
+		card_view.is_draggable = true
+		card_view.input_ray_pickable = true
+
+		if not card_view.drag_requested.is_connected(
+			drag_callable
+		):
+			card_view.drag_requested.connect(
+				drag_callable
+			)
+
+func _get_dealer_card_ids() -> Dictionary:
+	var result: Dictionary = {}
+
+	if state == null:
+		return result
+
+	if state.dealer == null:
+		return result
+
+	for slot_id: int in DealerSlotID.all_slots():
+		var card: CardInstance = state.dealer.slots.get(
+			slot_id,
+			null
+		) as CardInstance
+
+		if card == null:
+			continue
+
+		result[card.instance_id] = true
+
+	return result
+
+
+func _play_new_dealer_placed_vfx(
+	previous_card_ids: Dictionary
+) -> void:
+	if state == null:
+		return
+
+	if state.dealer == null:
+		return
+
+	var longest_duration: float = 0.0
+
+	for slot_id: int in DealerSlotID.all_slots():
+		var card: CardInstance = state.dealer.slots.get(
+			slot_id,
+			null
+		) as CardInstance
+
+		if card == null:
+			continue
+
+		# این کارت قبلاً روی زمین بوده.
+		if previous_card_ids.has(card.instance_id):
+			continue
+
+		if card.definition == null:
+			continue
+		if (
+			card.definition.dealer_notice_texture
+			!= null
+		):
+			hud.show_dealer_notice(
+				card.definition.dealer_notice_texture,
+				card.definition.dealer_notice_duration
+			)
+		# این کارت اصلاً Placed VFX ندارد.
+		if card.definition.placed_vfx == null:
+			continue
+
+		var card_view: Card3D = card_views.get(
+			card.instance_id,
+			null
+		) as Card3D
+
+		if card_view == null:
+			continue
+
+		print(
+			"DEALER PLACED VFX | ",
+			card.definition.display_name
+		)
+
+		var duration: float = _play_card_placed_vfx(
+			card_view
+		)
+
+		longest_duration = maxf(
+			longest_duration,
+			duration
+		)
+
+	if longest_duration > 0.0:
+		await get_tree().create_timer(
+			longest_duration
+		).timeout
+
+func _spawn_dealer_cards() -> void:
+	for slot_id: int in DealerSlotID.all_slots():
+		var card: CardInstance = state.dealer.slots.get(
+			slot_id,
+			null
+		)
+
+		if card == null:
+			continue
+
+		var anchor: Marker3D = \
+			game_layout.get_dealer_anchor(
+				slot_id
+			)
+
+		if anchor == null:
+			push_error(
+				"Missing dealer anchor: %s"
+				% slot_id
+			)
+			continue
+
+		_create_card_view(
+			card,
+			anchor.global_transform,
+			false
+		)
+
+func _spawn_board_cards(
+	player_id: int
+) -> void:
+	var player: PlayerState = state.get_player(
+		player_id
+	)
+
+	if player == null:
+		return
+
+	for slot_id: int in SlotID.all_slots():
+		var card: CardInstance = \
+			player.board.get_card(
+				slot_id
+			)
+
+		if card == null:
+			continue
+		if card.is_hero() and not card.hero_revealed:
+			continue
+
+		var place: CardPlace3D = \
+			game_layout.get_board_place(
+				player_id,
+				slot_id
+			)
+
+		if place == null:
+			continue
+
+		var draggable: bool = (
+			player_id == local_player_id
+		)
+
+		var visual_transform: Transform3D = \
+			_get_current_board_visual_transform(
+				player_id,
+				slot_id
+			)
+
+		var card_view: Card3D = \
+			_create_card_view(
+				card,
+				visual_transform,
+				draggable
+			)
+
+		if card_view == null:
+			continue
+
+		if draggable:
+			card_view.drag_requested.connect(
+				Callable(
+					self,
+					"_start_card_drag"
+				)
+			)
+
+
+func _spawn_hand_cards() -> void:
+	var player: PlayerState = state.get_player(
+		local_player_id
+	)
+
+	if player == null:
+		return
+
+	for index: int in range(player.hand.size()):
+		var card: CardInstance = player.hand[index]
+
+		var target_transform: Transform3D = \
+			game_layout.get_hand_transform(
+				local_player_id,
+				index,
+				player.hand.size()
+			)
+
+		var card_view: Card3D = _create_card_view(
+			card,
+			target_transform,
+			true
+		)
+
+		if card_view == null:
+			continue
+
+		card_view.set_keep_selected(
+			kept_hand_card_ids.has(
+				card.instance_id
+			)
+		)
+
+		card_view.drag_requested.connect(
+			Callable(
+				self,
+				"_start_card_drag"
+			)
+		)
+
+func _create_card_view(
+	card: CardInstance,
+	target_transform: Transform3D,
+	draggable: bool,
+	face_up: bool = true,
+	register_as_main_view: bool = true
+) -> Card3D:
+	var card_view := \
+		card_scene.instantiate() as Card3D
+
+	if card_view == null:
+		push_error(
+			"Card scene root must be Card3D."
+		)
+		return null
+
+	runtime_cards.add_child(card_view)
+
+	card_view.setup(
+		card,
+		target_transform,
+		draggable,
+		face_up
+	)
+	# Card3D already refreshes this in current builds, but doing it explicitly
+	# here makes a full board rebuild a hard visual synchronization point.
+	if card_view.has_method("refresh_gesture_override_label"):
+		card_view.call("refresh_gesture_override_label")
+
+	card_view.inspect_requested.connect(
+		Callable(
+			self,
+			"_on_card_inspect_requested"
+		)
+	)
+
+	if register_as_main_view:
+		card_views[card.instance_id] = card_view
+
+	return card_view
+
+func _on_card_inspect_requested(
+	card_view: Card3D
+) -> void:
+	if card_view == null:
+		return
+
+	if not is_instance_valid(card_view):
+		return
+
+	# Never expose a face-down opponent card.
+	if not card_view.is_face_up:
+		return
+
+	if card_view.card_instance == null:
+		return
+
+	# A hold starts from the same press as a possible drag.
+	# If the hold wins before the drag threshold, cancel the drag cleanly.
+	if dragged_card == card_view:
+		card_view.return_home()
+		dragged_card = null
+		pointer_has_dragged = false
+		_clear_drop_highlight()
+
+	_ensure_card_detail_overlay()
+
+	if not is_instance_valid(card_detail_overlay):
+		return
+
+	card_detail_overlay.show_card(
+		card_view.card_instance,
+		card_view.is_disabled
+	)
+
+
+func _start_card_drag(
+	card_view: Card3D,
+	screen_position: Vector2
+) -> void:
+	if dragged_card != null:
+		return
+
+	if interaction_locked:
+		return
+
+	if state == null:
+		return
+
+	if state.phase != MatchPhase.Type.MAIN:
+		return
+
+	var player: PlayerState = state.get_player(
+		local_player_id
+	)
+
+	if player == null:
+		return
+
+	if player.is_ready:
+		return
+
+	if card_view == null:
+		return
+
+	var card: CardInstance = \
+		card_view.card_instance
+
+	if card == null:
+		return
+
+	if card.owner_id != local_player_id:
+		return
+
+	if (
+		card.zone != CardZone.Type.HAND
+		and card.zone != CardZone.Type.BOARD
+	):
+		return
+
+	if (
+		tutorial_controller != null
+		and tutorial_controller.is_active()
+		and not tutorial_controller.can_start_drag(card)
+	):
+		tutorial_controller.notify_wrong_action()
+		return
+
+	dragged_card = card_view
+	pointer_start_position = screen_position
+	pointer_has_dragged = false
+
+	if tutorial_controller != null and tutorial_controller.is_active():
+		tutorial_controller.notify_drag_started(card)
+
+func _input(event: InputEvent) -> void:
+	# Hero placement uses the actual 3D board. The Dealer is already visible and
+	# the player taps one of their highlighted slots directly on the table.
+	if hero_ground_selection_active:
+		if event is InputEventMouseButton:
+			if event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+				_try_choose_hero_ground_slot(event.position)
+				get_viewport().set_input_as_handled()
+		elif event is InputEventScreenTouch:
+			if event.pressed:
+				_try_choose_hero_ground_slot(event.position)
+				get_viewport().set_input_as_handled()
+		return
+
+	# Deck selection is handled directly by screen position.
+	# This does not depend on Card3D's collider or drag signal.
+	if deck_selection_active:
+		# The new deck screen uses normal Control input. Do not consume the
+		# event here or its buttons will never receive it. The old 3D picker is
+		# kept below as a safe fallback for older serialized scenes.
+		if is_instance_valid(deck_selection_screen):
+			return
+
+		if event is InputEventMouseButton:
+			if (
+				event.button_index == MOUSE_BUTTON_LEFT
+				and event.pressed
+			):
+				_try_select_deck_at_screen_position(
+					event.position
+				)
+				get_viewport().set_input_as_handled()
+
+		elif event is InputEventScreenTouch:
+			if event.pressed:
+				_try_select_deck_at_screen_position(
+					event.position
+				)
+				get_viewport().set_input_as_handled()
+
+		return
+
+	if dragged_card == null:
+		return
+
+	if event is InputEventScreenDrag:
+		_update_pointer_drag(
+			event.position
+		)
+
+	elif event is InputEventMouseMotion:
+		_update_pointer_drag(
+			event.position
+		)
+
+	elif event is InputEventScreenTouch:
+		if not event.pressed:
+			_finish_pointer_interaction(
+				event.position
+			)
+
+	elif event is InputEventMouseButton:
+		if (
+			event.button_index == MOUSE_BUTTON_LEFT
+			and not event.pressed
+		):
+			_finish_pointer_interaction(
+				event.position
+			)
+
+func _try_select_deck_at_screen_position(
+	screen_position: Vector2
+) -> void:
+	if not deck_selection_active:
+		return
+
+	if camera_3d == null:
+		return
+
+	if deck_choice_cards.is_empty():
+		return
+
+	var closest_index: int = -1
+	var closest_distance: float = INF
+
+	for index: int in range(deck_choice_cards.size()):
+		var card_view: Card3D = deck_choice_cards[index]
+
+		if not is_instance_valid(card_view):
+			continue
+
+		if camera_3d.is_position_behind(
+			card_view.global_position
+		):
+			continue
+
+		var card_screen_position: Vector2 = \
+			camera_3d.unproject_position(
+				card_view.global_position
+			)
+
+		var distance: float = \
+			card_screen_position.distance_to(
+				screen_position
+			)
+
+		if distance < closest_distance:
+			closest_distance = distance
+			closest_index = index
+
+	if closest_index < 0:
+		return
+
+	var viewport_height: float = \
+		get_viewport().get_visible_rect().size.y
+
+	var selection_radius: float = clampf(
+		viewport_height * 0.24,
+		120.0,
+		320.0
+	)
+
+	if closest_distance > selection_radius:
+		return
+
+	var decks: Array[DeckDefinition] = [
+		player_one_deck,
+		player_one_deck_2,
+		player_one_deck_3
+	]
+
+	if closest_index >= decks.size():
+		return
+
+	var selected_deck: DeckDefinition = \
+		decks[closest_index]
+
+	if selected_deck == null:
+		push_error(
+			"Selected deck %d is missing."
+			% (closest_index + 1)
+		)
+		return
+
+	print(
+		"DECK CHOICE CLICK | deck=",
+		closest_index + 1
+	)
+
+	_on_deck_choice_selected(
+		deck_choice_cards[closest_index],
+		selected_deck
+	)
+
+
+func _update_pointer_drag(
+	screen_position: Vector2
+) -> void:
+	if not pointer_has_dragged:
+		var drag_distance: float = \
+			screen_position.distance_to(
+				pointer_start_position
+			)
+
+		if drag_distance < TAP_DRAG_THRESHOLD:
+			return
+
+		# A card the player cannot afford gives immediate mobile feedback:
+		# it moves part-way toward the finger, snaps back, pulses Mana,
+		# shows a tiny warning, and gives one short vibration.
+		if _reject_drag_for_low_mana(screen_position):
+			return
+
+		pointer_has_dragged = true
+
+	_move_dragged_card(
+		screen_position
+	)
+
+
+func _finish_pointer_interaction(
+	screen_position: Vector2
+) -> void:
+	if dragged_card == null:
+		return
+
+	if not pointer_has_dragged:
+		var tapped_card: Card3D = dragged_card
+		dragged_card = null
+		_clear_drop_highlight()
+
+		_toggle_keep_card(
+			tapped_card
+		)
+		return
+
+	_finish_card_drag(
+		screen_position
+	)
+
+func _toggle_keep_card(
+	card_view: Card3D
+) -> void:
+	if card_view == null:
+		return
+
+	# Rush counts every live card directly from its real zone at cleanup.
+	# Keeping cards outside Hand temporarily would make that count ambiguous.
+	if state != null and state.rush_mode_enabled:
+		return
+
+	var card: CardInstance = \
+		card_view.card_instance
+
+	if tutorial_controller != null and tutorial_controller.is_active():
+		if tutorial_controller.try_handle_card_tap(card):
+			return
+		if not tutorial_controller.can_toggle_keep_card():
+			tutorial_controller.notify_wrong_action()
+			return
+
+	if card == null:
+		return
+
+	if card.owner_id != local_player_id:
+		return
+
+	if card.zone != CardZone.Type.HAND:
+		return
+
+	if kept_hand_card_ids.has(
+		card.instance_id
+	):
+		kept_hand_card_ids.erase(
+			card.instance_id
+		)
+
+		card_view.set_keep_selected(false)
+		return
+
+	if (
+		kept_hand_card_ids.size()
+		>= MAX_KEPT_HAND_CARDS
+	):
+		return
+
+	kept_hand_card_ids[
+		card.instance_id
+	] = true
+
+	card_view.set_keep_selected(true)
+
+
+func _get_drag_world_point(
+	screen_position: Vector2
+) -> Variant:
+	if camera_3d == null:
+		return null
+
+	var ray_origin: Vector3 = camera_3d.project_ray_origin(
+		screen_position
+	)
+	var ray_direction: Vector3 = camera_3d.project_ray_normal(
+		screen_position
+	)
+	var drag_plane := Plane(
+		Vector3.UP,
+		drag_plane_height
+	)
+
+	return drag_plane.intersects_ray(
+		ray_origin,
+		ray_direction
+	)
+
+
+func _get_drag_required_mana(
+	card: CardInstance
+) -> int:
+	if card == null:
+		return 0
+
+	if card.zone == CardZone.Type.HAND:
+		if card.definition == null:
+			return 0
+		return card.get_mana_cost()
+
+	if card.zone == CardZone.Type.BOARD:
+		if engine != null:
+			return engine.get_board_move_mana_cost_for_card(
+				card.owner_id,
+				card
+			)
+
+		return (
+			0
+			if state != null and state.rush_mode_enabled
+			else MatchEngine.BOARD_MOVE_MANA_COST
+		)
+
+	return 0
+
+
+func _reject_drag_for_low_mana(
+	screen_position: Vector2
+) -> bool:
+	if dragged_card == null:
+		return false
+
+	if state == null:
+		return false
+
+	var card_view: Card3D = dragged_card
+	var card: CardInstance = card_view.card_instance
+
+	if card == null:
+		return false
+
+	var required_mana: int = _get_drag_required_mana(card)
+	if required_mana <= 0:
+		return false
+
+	var player: PlayerState = state.get_player(
+		local_player_id
+	)
+	if player == null:
+		return false
+
+	if player.current_mana >= required_mana:
+		return false
+
+	# Consume this drag gesture so release cannot turn into a tap/keep action.
+	dragged_card = null
+	pointer_has_dragged = false
+	pointer_start_position = Vector2.ZERO
+	_clear_drop_highlight()
+
+	_animate_low_mana_reject(
+		card_view,
+		screen_position
+	)
+
+	if hud != null:
+		hud.show_low_mana_feedback()
+
+	return true
+
+
+func _animate_low_mana_reject(
+	card_view: Card3D,
+	screen_position: Vector2
+) -> void:
+	if card_view == null:
+		return
+	if not is_instance_valid(card_view):
+		return
+
+	var start_transform: Transform3D = card_view.global_transform
+	var reject_transform: Transform3D = start_transform
+	var world_point: Variant = _get_drag_world_point(
+		screen_position
+	)
+
+	if world_point != null:
+		var target_position: Vector3 = world_point as Vector3
+		var travel: Vector3 = target_position - start_transform.origin
+
+		if travel.length() > low_mana_reject_max_distance:
+			travel = travel.normalized() * low_mana_reject_max_distance
+
+		reject_transform.origin = (
+			start_transform.origin
+			+ travel * low_mana_reject_distance_ratio
+		)
+		reject_transform.origin.y += 0.035
+	else:
+		reject_transform.origin += Vector3(0.0, 0.05, -0.10)
+
+	var reject_tween: Tween = create_tween()
+	reject_tween.tween_property(
+		card_view,
+		"global_transform",
+		reject_transform,
+		low_mana_reject_out_time
+	).set_trans(
+		Tween.TRANS_QUAD
+	).set_ease(
+		Tween.EASE_OUT
+	)
+
+	reject_tween.tween_property(
+		card_view,
+		"global_transform",
+		start_transform,
+		low_mana_reject_return_time
+	).set_trans(
+		Tween.TRANS_BACK
+	).set_ease(
+		Tween.EASE_OUT
+	)
+
+	reject_tween.tween_callback(
+		Callable(card_view, "return_home")
+	)
+
+
+func _move_dragged_card(
+	screen_position: Vector2
+) -> void:
+	var intersection: Variant = _get_drag_world_point(
+		screen_position
+	)
+
+	if intersection == null:
+		return
+
+	dragged_card.global_position = intersection
+	_update_drop_highlight(screen_position)
+
+func _finish_card_drag(
+	screen_position: Vector2
+) -> void:
+	var card_view: Card3D = dragged_card
+	dragged_card = null
+
+	if card_view == null:
+		_clear_drop_highlight()
+		return
+
+	var place: CardPlace3D = _get_place_under_mouse(
+		screen_position
+	)
+
+	if place == null:
+		_clear_drop_highlight()
+		card_view.return_home()
+		if tutorial_controller != null and tutorial_controller.is_active():
+			tutorial_controller.notify_wrong_action()
+		return
+
+	if place.kind != CardPlace3D.Kind.PLAYER_BOARD:
+		_clear_drop_highlight()
+		card_view.return_home()
+		if tutorial_controller != null and tutorial_controller.is_active():
+			tutorial_controller.notify_wrong_action()
+		return
+
+	if place.owner_id != local_player_id:
+		_clear_drop_highlight()
+		card_view.return_home()
+		if tutorial_controller != null and tutorial_controller.is_active():
+			tutorial_controller.notify_wrong_action()
+		return
+
+	var card: CardInstance = card_view.card_instance
+
+	if card == null:
+		_clear_drop_highlight()
+		card_view.return_home()
+		return
+
+	if (
+		tutorial_controller != null
+		and tutorial_controller.is_active()
+		and not tutorial_controller.can_drop(card, place)
+	):
+		_clear_drop_highlight()
+		card_view.return_home()
+		tutorial_controller.notify_wrong_action()
+		return
+
+	if _reject_invalid_cover(
+		card_view,
+		card,
+		place
+	):
+		highlighted_drop_place = null
+		return
+
+	_clear_drop_highlight()
+
+	var original_zone: CardZone.Type = card.zone
+
+	if original_zone == CardZone.Type.HAND:
+		var hand_cover_target_before: CardInstance = _get_local_board_card(
+			place.logical_id
+		)
+		var hand_covering_hero: bool = (
+			hand_cover_target_before != null
+			and hand_cover_target_before.is_hero()
+		)
+		var online_play_action: Dictionary = {}
+		if online_mode:
+			online_play_action = {
+				"kind": "play",
+				"card_id": card.instance_id,
+				"slot": place.logical_id
+			}
+			if hand_covering_hero:
+				online_play_action["hero_type_change"] = _build_online_hero_type_change(
+					hand_cover_target_before,
+					card
+				)
+			online_play_action = _prepare_online_predicted_hidden_action(online_play_action)
+			seed(int(online_play_action.get("_rng_seed", 1)))
+
+		var was_played: bool = engine.play_card(
+			local_player_id,
+			card,
+			place.logical_id
+		)
+
+		if not was_played:
+			card_view.return_home()
+			return
+
+		if online_mode:
+			_request_online_hidden_action(online_play_action)
+
+		# Covering a Hero consumes the normal card and changes the Hero's type.
+		# IMPORTANT ONLINE PRIVACY RULE:
+		# Never call _sync_visual_state() here. Remote hidden actions have already
+		# been applied to MatchState for lockstep, and a full rebuild would expose
+		# the opponent's secret board position/type before Reveal. Update only the
+		# local views touched by this action.
+		if hand_covering_hero:
+			kept_hand_card_ids.erase(card.instance_id)
+			card_view.set_keep_selected(false)
+			await _present_local_hero_type_cover(
+				card_view,
+				hand_cover_target_before
+			)
+			_spawn_missing_local_hand_cards()
+			await _refresh_hand_positions()
+			_refresh_pile_entities_for_player(local_player_id)
+			_refresh_hud_without_hidden_opponent_leak()
+			return
+
+		kept_hand_card_ids.erase(
+			card.instance_id
+		)
+		card_view.set_keep_selected(false)
+
+		_remove_pile_card_views(
+			local_player_id
+		)
+		_remove_discarded_card_views(local_player_id)
+		_spawn_missing_local_hand_cards()
+		_refresh_pile_entities_for_player(local_player_id)
+
+		_sync_visual_slots_for_player(
+			local_player_id
+		)
+
+		pending_local_cards.append(
+			card
+		)
+
+		card_view.is_draggable = true
+		await _refresh_board_card_positions(
+			local_player_id,
+			true
+		)
+
+		var placed_vfx_duration: float = \
+			_play_card_placed_vfx(
+				card_view
+			)
+
+		await _play_card_placement_disable_sequence(
+			card_view,
+			placed_vfx_duration
+		)
+
+		_refresh_hud_without_hidden_opponent_leak()
+
+		await _refresh_hand_positions()
+
+		if tutorial_controller != null and tutorial_controller.is_active():
+			var actual_slot_id: int = place.logical_id
+			if SlotID.is_valid(card.current_slot):
+				actual_slot_id = card.current_slot
+
+			tutorial_controller.notify_successful_drop(
+				card,
+				original_zone,
+				actual_slot_id
+			)
+		return
+
+	if original_zone == CardZone.Type.BOARD:
+		var from_slot_id: int = card.current_slot
+		var to_slot_id: int = place.logical_id
+		var board_target_before: CardInstance = _get_local_board_card(to_slot_id)
+		var hero_special_move: bool = (
+			card.is_hero()
+			or (
+				board_target_before != null
+				and board_target_before.is_hero()
+			)
+		)
+
+		var online_move_action: Dictionary = {}
+		if online_mode:
+			online_move_action = {
+				"kind": "move",
+				"card_id": card.instance_id,
+				"from_slot": from_slot_id,
+				"to_slot": to_slot_id
+			}
+			if (
+				board_target_before != null
+				and board_target_before.is_hero()
+				and not card.is_hero()
+			):
+				online_move_action["hero_type_change"] = _build_online_hero_type_change(
+					board_target_before,
+					card
+				)
+			online_move_action = _prepare_online_predicted_hidden_action(online_move_action)
+			seed(int(online_move_action.get("_rng_seed", 1)))
+
+		var was_moved: bool = engine.move_board_card(
+			local_player_id,
+			from_slot_id,
+			to_slot_id
+		)
+
+		if not was_moved:
+			card_view.return_home()
+			_vibrate_invalid_switch()
+			return
+
+		if online_mode:
+			_request_online_hidden_action(online_move_action)
+
+		# Hero-related board moves must remain local-only during the hidden
+		# planning phase. A full _sync_visual_state() would rebuild the opponent
+		# from the already-mutated lockstep MatchState and leak their secret move.
+		if hero_special_move:
+			if (
+				board_target_before != null
+				and board_target_before.is_hero()
+				and not card.is_hero()
+			):
+				await _present_local_hero_type_cover(
+					card_view,
+					board_target_before
+				)
+			else:
+				await _sync_local_board_visuals_only()
+			_refresh_pile_entities_for_player(local_player_id)
+			_refresh_hud_without_hidden_opponent_leak()
+			return
+
+		_remove_pile_card_views(
+			local_player_id
+		)
+		_remove_discarded_card_views(local_player_id)
+		_refresh_pile_entities_for_player(local_player_id)
+
+		_sync_visual_slots_for_player(
+			local_player_id
+		)
+		await _refresh_board_card_positions(
+			local_player_id,
+			true
+		)
+		_refresh_board_disabled_visuals(true, local_player_id)
+
+		_refresh_hud_without_hidden_opponent_leak()
+
+		if tutorial_controller != null and tutorial_controller.is_active():
+			var actual_move_slot_id: int = place.logical_id
+			if SlotID.is_valid(card.current_slot):
+				actual_move_slot_id = card.current_slot
+
+			tutorial_controller.notify_successful_drop(
+				card,
+				original_zone,
+				actual_move_slot_id
+			)
+		return
+
+	card_view.return_home()
+
+func _present_local_hero_type_cover(
+	consumed_view: Card3D,
+	hero: CardInstance
+) -> void:
+	# This function intentionally touches LOCAL presentation only. The remote
+	# board may already contain hidden lockstep mutations in MatchState.
+	if hero == null:
+		return
+
+	var hero_view := card_views.get(
+		hero.instance_id,
+		null
+	) as Card3D
+
+	if (
+		consumed_view != null
+		and is_instance_valid(consumed_view)
+		and hero_view != null
+		and is_instance_valid(hero_view)
+	):
+		var target_transform: Transform3D = hero_view.global_transform
+		var tween: Tween = create_tween()
+		tween.set_trans(Tween.TRANS_QUAD)
+		tween.set_ease(Tween.EASE_OUT)
+		tween.tween_property(
+			consumed_view,
+			"global_transform",
+			target_transform,
+			maxf(0.10, board_reflow_time * 0.65)
+		)
+		await tween.finished
+
+		var vfx_duration: float = _play_card_placed_vfx(consumed_view)
+		if vfx_duration > 0.0:
+			await get_tree().create_timer(vfx_duration).timeout
+
+	if consumed_view != null and is_instance_valid(consumed_view):
+		if consumed_view.card_instance != null:
+			card_views.erase(consumed_view.card_instance.instance_id)
+		consumed_view.queue_free()
+
+	# Only the LOCAL logical board snapshot changes here. Do not touch the
+	# opponent visual snapshot until the server sends Turn Reveal.
+	_sync_visual_slots_for_player(local_player_id)
+	await _refresh_board_card_positions(local_player_id, true)
+
+	hero_view = card_views.get(hero.instance_id, null) as Card3D
+	if hero_view != null and is_instance_valid(hero_view):
+		if hero_view.has_method("refresh_front_visual"):
+			hero_view.call("refresh_front_visual")
+		if hero_view.has_method("refresh_gesture_override_label"):
+			hero_view.call("refresh_gesture_override_label")
+		await _pulse_existing_card(hero)
+
+
+func _sync_local_board_visuals_only() -> void:
+	# Reconcile local Board views without rebuilding any remote Card3D. This is
+	# safe while the opponent has hidden actions already applied to MatchState.
+	if state == null:
+		return
+
+	_sync_visual_slots_for_player(local_player_id)
+
+	var visible_local_ids: Dictionary = {}
+	var player: PlayerState = state.get_player(local_player_id)
+	if player == null:
+		return
+
+	for slot_id: int in SlotID.all_slots():
+		var board_card: CardInstance = player.board.get_card(slot_id)
+		if board_card != null:
+			visible_local_ids[board_card.instance_id] = true
+
+	var existing_ids: Array = card_views.keys()
+	for raw_id: Variant in existing_ids:
+		var instance_id: int = int(raw_id)
+		var view := card_views.get(instance_id, null) as Card3D
+		if view == null or not is_instance_valid(view):
+			continue
+		var view_card: CardInstance = view.card_instance
+		if view_card == null or view_card.owner_id != local_player_id:
+			continue
+		if view_card.zone == CardZone.Type.HAND:
+			continue
+		if visible_local_ids.has(instance_id):
+			continue
+		card_views.erase(instance_id)
+		view.queue_free()
+
+	await get_tree().process_frame
+
+	for slot_id: int in SlotID.all_slots():
+		var board_card: CardInstance = player.board.get_card(slot_id)
+		if board_card == null:
+			continue
+		if card_views.has(board_card.instance_id):
+			continue
+		if board_card.is_hero() and not board_card.hero_revealed:
+			continue
+		var target_transform := _get_current_board_visual_transform(
+			local_player_id,
+			slot_id
+		)
+		var new_view := _create_card_view(
+			board_card,
+			target_transform,
+			true
+		)
+		if new_view != null:
+			new_view.drag_requested.connect(
+				Callable(self, "_start_card_drag")
+			)
+
+	await _refresh_board_card_positions(local_player_id, true)
+	_restore_local_board_dragging()
+
+
+func _refresh_pile_entities_for_player(player_id: int) -> void:
+	if state == null or not is_instance_valid(game_layout):
+		return
+	var player: PlayerState = state.get_player(player_id)
+	if player == null:
+		return
+	for pile_type: int in CardPile3D.Type.values():
+		var pile_entity: CardPile3D = game_layout.get_pile_entity(
+			player_id,
+			pile_type
+		)
+		if pile_entity != null:
+			pile_entity.refresh_from_player(player)
+
+
+# =========================================================
+# Front-first placement visuals
+# =========================================================
+
+func _rebuild_visual_board_slots_from_state() -> void:
+	if state == null:
+		return
+
+	for player_id: int in [1, 2]:
+		_sync_visual_slots_for_player(player_id)
+
+
+func _sync_visual_slots_for_player(
+	player_id: int
+) -> void:
+	if state == null:
+		return
+
+	var player: PlayerState = state.get_player(
+		player_id
+	)
+
+	if player == null:
+		return
+
+	var snapshot: Dictionary = {}
+
+	for slot_id: int in SlotID.all_slots():
+		var card: CardInstance = player.board.get_card(
+			slot_id
+		)
+
+		if card == null:
+			continue
+
+		snapshot[card.instance_id] = slot_id
+
+	visual_board_slots[player_id] = snapshot
+
+
+func _apply_visual_board_snapshot(
+	player_id: int,
+	snapshot: Dictionary
+) -> void:
+	if snapshot == null or snapshot.is_empty():
+		# Empty is valid only when the board is actually empty. Do not erase a
+		# populated visual board because of an old record without snapshot data.
+		var player_slots: Dictionary = visual_board_slots.get(
+			player_id,
+			{}
+		)
+		if player_slots.is_empty():
+			visual_board_slots[player_id] = {}
+		return
+
+	visual_board_slots[player_id] = snapshot.duplicate()
+
+
+func _get_middle_row_count_from_snapshot(
+	snapshot: Dictionary,
+	row: int
+) -> int:
+	var count: int = 0
+
+	for raw_slot_id: Variant in snapshot.values():
+		var slot_id: int = int(raw_slot_id)
+
+		if not SlotID.is_valid(slot_id):
+			continue
+
+		if SlotID.get_lane(slot_id) != SlotID.Lane.MIDDLE:
+			continue
+
+		if SlotID.get_row(slot_id) != row:
+			continue
+
+		count += 1
+
+	return count
+
+
+func _get_board_visual_transform_from_snapshot(
+	player_id: int,
+	slot_id: int,
+	snapshot: Dictionary
+) -> Transform3D:
+	if not SlotID.is_valid(slot_id):
+		return Transform3D.IDENTITY
+
+	var middle_count: int = 2
+
+	if SlotID.get_lane(slot_id) == SlotID.Lane.MIDDLE:
+		middle_count = _get_middle_row_count_from_snapshot(
+			snapshot,
+			SlotID.get_row(slot_id)
+		)
+
+	return game_layout.get_board_visual_transform(
+		player_id,
+		slot_id,
+		middle_count
+	)
+
+
+func _get_current_board_visual_transform(
+	player_id: int,
+	slot_id: int
+) -> Transform3D:
+	var snapshot: Dictionary = visual_board_slots.get(
+		player_id,
+		{}
+	)
+
+	return _get_board_visual_transform_from_snapshot(
+		player_id,
+		slot_id,
+		snapshot
+	)
+
+
+func _find_instance_at_visual_slot(
+	snapshot: Dictionary,
+	slot_id: int
+) -> int:
+	for raw_instance_id: Variant in snapshot.keys():
+		if int(snapshot[raw_instance_id]) == slot_id:
+			return int(raw_instance_id)
+
+	return -1
+
+
+func _build_preview_board_snapshot(
+	card: CardInstance,
+	target_slot_id: int
+) -> Dictionary:
+	var snapshot: Dictionary = visual_board_slots.get(
+		local_player_id,
+		{}
+	).duplicate()
+
+	if card == null:
+		return snapshot
+
+	# Remove the dragged card from its old visual position when moving Board->Board.
+	if card.zone == CardZone.Type.BOARD:
+		snapshot.erase(card.instance_id)
+
+	# Cover replaces the visual card already occupying the destination.
+	var replaced_instance_id: int = _find_instance_at_visual_slot(
+		snapshot,
+		target_slot_id
+	)
+	if replaced_instance_id != -1:
+		snapshot.erase(replaced_instance_id)
+
+	snapshot[card.instance_id] = target_slot_id
+	return snapshot
+
+
+func _get_preview_board_transform(
+	card: CardInstance,
+	target_slot_id: int
+) -> Transform3D:
+	var snapshot: Dictionary = _build_preview_board_snapshot(
+		card,
+		target_slot_id
+	)
+
+	return _get_board_visual_transform_from_snapshot(
+		local_player_id,
+		target_slot_id,
+		snapshot
+	)
+
+
+func _refresh_board_card_positions(
+	player_id: int,
+	animate: bool = true
+) -> void:
+	var snapshot: Dictionary = visual_board_slots.get(
+		player_id,
+		{}
+	)
+
+	var tween: Tween
+	var has_tween: bool = false
+
+	if animate and board_reflow_time > 0.0:
+		tween = create_tween()
+		tween.set_parallel(true)
+
+	for raw_instance_id: Variant in snapshot.keys():
+		var instance_id: int = int(raw_instance_id)
+		var slot_id: int = int(snapshot[raw_instance_id])
+		var card_view := card_views.get(
+			instance_id,
+			null
+		) as Card3D
+
+		if card_view == null:
+			continue
+
+		var target_transform: Transform3D = \
+			_get_board_visual_transform_from_snapshot(
+				player_id,
+				slot_id,
+				snapshot
+			)
+
+		card_view.home_transform = target_transform
+
+		if tween != null:
+			tween.tween_property(
+				card_view,
+				"global_transform",
+				target_transform,
+				board_reflow_time
+			).set_trans(
+				Tween.TRANS_QUAD
+			).set_ease(
+				Tween.EASE_OUT
+			)
+			has_tween = true
+		else:
+			card_view.return_home()
+
+	if tween != null and has_tween:
+		await tween.finished
+
+
+func _get_local_board_card(
+	slot_id: int
+) -> CardInstance:
+	if state == null:
+		return null
+
+	var player: PlayerState = state.get_player(
+		local_player_id
+	)
+
+	if player == null:
+		return null
+
+	return player.board.get_card(slot_id)
+
+
+func _get_cover_highlight_kind(
+	card: CardInstance,
+	target_slot_id: int
+) -> CardPlace3D.HighlightKind:
+	var target_card: CardInstance = _get_local_board_card(
+		target_slot_id
+	)
+
+	if target_card == null:
+		return CardPlace3D.HighlightKind.NORMAL
+
+	if target_card == card:
+		return CardPlace3D.HighlightKind.NORMAL
+
+	if engine.can_cover_card(
+		local_player_id,
+		card,
+		target_slot_id
+	):
+		return CardPlace3D.HighlightKind.VALID_COVER
+
+	return CardPlace3D.HighlightKind.INVALID_COVER
+
+
+func _reject_invalid_cover(
+	card_view: Card3D,
+	card: CardInstance,
+	place: CardPlace3D
+) -> bool:
+	if card_view == null or card == null or place == null:
+		return false
+
+	var target_card: CardInstance = _get_local_board_card(
+		place.logical_id
+	)
+
+	if target_card == null:
+		return false
+
+	if target_card == card:
+		return false
+
+	if engine.can_cover_card(
+		local_player_id,
+		card,
+		place.logical_id
+	):
+		return false
+
+	var preview_transform: Transform3D = \
+		_get_preview_board_transform(
+			card,
+			place.logical_id
+		)
+
+	place.flash_invalid_drop(
+		preview_transform,
+		invalid_cover_flash_time
+	)
+
+	card_view.return_home()
+
+	_vibrate_invalid_switch()
+
+	if tutorial_controller != null and tutorial_controller.is_active():
+		tutorial_controller.notify_wrong_action()
+
+	return true
+
+
+func _vibrate_invalid_switch() -> void:
+	# Safe on unsupported platforms (Godot simply ignores it there).
+	# Android still needs the VIBRATE export permission enabled.
+	Input.vibrate_handheld(
+		invalid_cover_vibration_ms
+	)
+
+
+func _clear_drop_highlight() -> void:
+	if highlighted_drop_place != null:
+		if is_instance_valid(highlighted_drop_place):
+			highlighted_drop_place.hide_drop_highlight()
+
+	highlighted_drop_place = null
+
+
+func _update_drop_highlight(
+	screen_position: Vector2
+) -> void:
+	_clear_drop_highlight()
+
+	if dragged_card == null:
+		return
+
+	var card: CardInstance = dragged_card.card_instance
+
+	if card == null:
+		return
+
+	var hovered_place: CardPlace3D = _get_place_under_mouse(
+		screen_position
+	)
+
+	if (
+		hovered_place != null
+		and hovered_place.kind == CardPlace3D.Kind.PLAYER_BOARD
+		and hovered_place.owner_id == local_player_id
+	):
+		if _show_drop_highlight_for_place(card, hovered_place):
+			return
+
+	var early_place: CardPlace3D = \
+		_get_early_drop_highlight_place(
+			card,
+			screen_position
+		)
+
+	if early_place != null:
+		_show_drop_highlight_for_place(card, early_place)
+
+
+func _show_drop_highlight_for_place(
+	card: CardInstance,
+	hovered_place: CardPlace3D
+) -> bool:
+	if card == null or hovered_place == null:
+		return false
+
+	var target_slot_id: int = hovered_place.logical_id
+
+	# New cards use front-first resolver. Existing Board cards keep explicit
+	# Move/Cover targeting and are validated by MatchEngine on release.
+	if card.zone == CardZone.Type.HAND:
+		target_slot_id = engine.resolve_play_slot(
+			local_player_id,
+			target_slot_id
+		)
+
+	if not SlotID.is_valid(target_slot_id):
+		return false
+
+	var target_place: CardPlace3D = game_layout.get_board_place(
+		local_player_id,
+		target_slot_id
+	)
+
+	if target_place == null:
+		return false
+
+	if (
+		tutorial_controller != null
+		and tutorial_controller.is_active()
+		and not tutorial_controller.can_drop(card, target_place)
+	):
+		return false
+
+	var preview_transform: Transform3D = \
+		_get_preview_board_transform(
+			card,
+			target_slot_id
+		)
+
+	var highlight_kind: CardPlace3D.HighlightKind = \
+		_get_cover_highlight_kind(
+			card,
+			target_slot_id
+		)
+
+	target_place.show_drop_highlight(
+		preview_transform,
+		highlight_kind
+	)
+	highlighted_drop_place = target_place
+	return true
+
+
+func _get_early_drop_highlight_place(
+	card: CardInstance,
+	screen_position: Vector2
+) -> CardPlace3D:
+	if card == null or camera_3d == null or game_layout == null:
+		return null
+
+	var closest_place: CardPlace3D
+	var closest_distance: float = INF
+	var checked_target_slots: Dictionary = {}
+
+	for raw_slot_id: int in SlotID.all_slots():
+		var target_slot_id: int = raw_slot_id
+
+		if card.zone == CardZone.Type.HAND:
+			target_slot_id = engine.resolve_play_slot(
+				local_player_id,
+				raw_slot_id
+			)
+
+		if not SlotID.is_valid(target_slot_id):
+			continue
+
+		# Moving a Board card back onto its own source slot is not a useful target.
+		if (
+			card.zone == CardZone.Type.BOARD
+			and target_slot_id == card.current_slot
+		):
+			continue
+
+		if checked_target_slots.has(target_slot_id):
+			continue
+
+		checked_target_slots[target_slot_id] = true
+
+		var target_place: CardPlace3D = game_layout.get_board_place(
+			local_player_id,
+			target_slot_id
+		)
+
+		if target_place == null or target_place.card_anchor == null:
+			continue
+
+		if (
+			tutorial_controller != null
+			and tutorial_controller.is_active()
+			and not tutorial_controller.can_drop(card, target_place)
+		):
+			continue
+
+		var target_world_position: Vector3 = \
+			target_place.card_anchor.global_position
+
+		if camera_3d.is_position_behind(target_world_position):
+			continue
+
+		var target_screen_position: Vector2 = \
+			camera_3d.unproject_position(target_world_position)
+		var route_distance: float = \
+			pointer_start_position.distance_to(
+				target_screen_position
+			)
+
+		if route_distance <= TAP_DRAG_THRESHOLD:
+			continue
+
+		var current_distance: float = screen_position.distance_to(
+			target_screen_position
+		)
+		var route_progress: float = 1.0 - (
+			current_distance / route_distance
+		)
+
+		if route_progress < early_drop_highlight_progress_ratio:
+			continue
+
+		if current_distance < closest_distance:
+			closest_distance = current_distance
+			closest_place = target_place
+
+	return closest_place
+
+
+func _get_place_under_mouse(
+	screen_position: Vector2
+) -> CardPlace3D:
+	if camera_3d == null:
+		return null
+
+	# Prefer the real Area3D hit when the projected collision shape is large
+	# enough. This preserves exact behavior for the near/bottom slots.
+	var ray_origin: Vector3 = camera_3d.project_ray_origin(
+		screen_position
+	)
+	var ray_direction: Vector3 = camera_3d.project_ray_normal(
+		screen_position
+	)
+	var query := PhysicsRayQueryParameters3D.create(
+		ray_origin,
+		ray_origin + ray_direction * 1000.0
+	)
+	query.collision_mask = SLOT_COLLISION_MASK
+	query.collide_with_areas = true
+	query.collide_with_bodies = false
+
+	var result: Dictionary = get_world_3d().direct_space_state.intersect_ray(
+		query
+	)
+	if not result.is_empty():
+		var exact_place := result.get(
+			"collider",
+			null
+		) as CardPlace3D
+		if exact_place != null:
+			return exact_place
+
+	# Perspective fallback: select the nearest local board slot by its actual
+	# projected on-screen footprint. Far/top rows get an explicit pixel margin,
+	# so they are just as easy to highlight and drop onto as the bottom row.
+	return _get_local_board_place_from_screen_space(screen_position)
+
+
+func _get_local_board_place_from_screen_space(
+	screen_position: Vector2
+) -> CardPlace3D:
+	if camera_3d == null or game_layout == null:
+		return null
+
+	var best_place: CardPlace3D
+	var best_score: float = INF
+
+	for slot_id: int in SlotID.all_slots():
+		var place: CardPlace3D = game_layout.get_board_place(
+			local_player_id,
+			slot_id
+		)
+		if place == null:
+			continue
+
+		var center_world: Vector3 = place.global_position
+		if place.card_anchor != null:
+			center_world = place.card_anchor.global_position
+
+		if camera_3d.is_position_behind(center_world):
+			continue
+
+		var center_screen: Vector2 = camera_3d.unproject_position(
+			center_world
+		)
+
+		# CardPlace3D's original collision box is 0.32 x 0.449. Project
+		# comparable X/Z extents through the real camera, then expand them by
+		# a constant screen margin. This automatically compensates for depth.
+		var local_half_x: float = 0.16 * board_slot_screen_pick_extent_scale
+		var local_half_z: float = 0.2245 * board_slot_screen_pick_extent_scale
+		var world_x_offset: Vector3 = place.global_transform.basis * Vector3(
+			local_half_x,
+			0.0,
+			0.0
+		)
+		var world_z_offset: Vector3 = place.global_transform.basis * Vector3(
+			0.0,
+			0.0,
+			local_half_z
+		)
+
+		var x_edge_screen: Vector2 = camera_3d.unproject_position(
+			center_world + world_x_offset
+		)
+		var z_edge_screen: Vector2 = camera_3d.unproject_position(
+			center_world + world_z_offset
+		)
+
+		var half_width_px: float = maxf(
+			18.0,
+			center_screen.distance_to(x_edge_screen)
+		) + board_slot_screen_pick_margin_px
+		var half_height_px: float = maxf(
+			22.0,
+			center_screen.distance_to(z_edge_screen)
+		) + board_slot_screen_pick_margin_px
+
+		var delta: Vector2 = screen_position - center_screen
+		if absf(delta.x) > half_width_px:
+			continue
+		if absf(delta.y) > half_height_px:
+			continue
+
+		# Normalized ellipse score chooses the correct slot if the expanded
+		# screen footprints overlap around a row boundary.
+		var score: float = (
+			pow(delta.x / half_width_px, 2.0)
+			+ pow(delta.y / half_height_px, 2.0)
+		)
+		if score < best_score:
+			best_score = score
+			best_place = place
+
+	return best_place
+
+
+func _refresh_hand_positions() -> void:
+	var player: PlayerState = state.get_player(
+		local_player_id
+	)
+
+	if player == null:
+		return
+
+	for index: int in range(player.hand.size()):
+		var card: CardInstance = player.hand[index]
+
+		var card_view := card_views.get(
+			card.instance_id,
+			null
+		) as Card3D
+
+		if card_view == null:
+			continue
+
+		var target_transform: Transform3D = \
+			game_layout.get_hand_transform(
+				local_player_id,
+				index,
+				player.hand.size()
+			)
+
+		card_view.move_home(
+			target_transform
+		)
+
+
+func _resources_are_valid() -> bool:
+	if rules == null:
+		push_error("Rules are missing.")
+		return false
+
+	if player_one_deck == null:
+		push_error("Player one deck is missing.")
+		return false
+
+	if player_one_deck_2 == null:
+		push_error("Player deck choice 2 is missing.")
+		return false
+
+	if player_one_deck_3 == null:
+		push_error("Player deck choice 3 is missing.")
+		return false
+
+	if deck_builder_settings == null:
+		push_error("Deck builder settings are missing.")
+		return false
+
+	if player_two_deck == null:
+		push_error("Player two deck is missing.")
+		return false
+
+	if dealer_deck == null:
+		push_error("Dealer deck is missing.")
+		return false
+
+	if game_layout == null:
+		push_error("GameLayout is missing.")
+		return false
+
+	if card_scene == null:
+		push_error("Card scene is missing.")
+		return false
+
+	if runtime_cards == null:
+		push_error("RuntimeCards is missing.")
+		return false
+
+	if vfx_manager == null:
+		push_error("CardVFXManager3D is missing.")
+		return false
+
+	if camera_3d == null:
+		push_error("Camera3D is missing.")
+		return false
+
+	if hud == null:
+		push_error("HUD is missing.")
+		return false
+
+	return true
+
+
+func _spawn_opponent_hand_cards() -> void:
+	var opponent: PlayerState = state.get_player(
+		bot_player_id
+	)
+
+	if opponent == null:
+		return
+
+	for index: int in range(
+		opponent.hand.size()
+	):
+		var card: CardInstance = \
+			opponent.hand[index]
+
+		var target_transform: Transform3D = \
+			game_layout.get_hand_transform(
+				bot_player_id,
+				index,
+				opponent.hand.size()
+			)
+
+		var card_view: Card3D = \
+			_create_card_view(
+				card,
+				target_transform,
+				false,
+				false,
+				false
+			)
+
+		if card_view == null:
+			continue
+
+		opponent_hand_views[
+			card.instance_id
+		] = card_view
+
+
+func _refresh_opponent_hand_positions() -> void:
+	var opponent: PlayerState = state.get_player(
+		bot_player_id
+	)
+
+	if opponent == null:
+		return
+
+	for index: int in range(
+		opponent.hand.size()
+	):
+		var card: CardInstance = \
+			opponent.hand[index]
+
+		var card_view := \
+			opponent_hand_views.get(
+				card.instance_id,
+				null
+			) as Card3D
+
+		if card_view == null:
+			continue
+
+		var target_transform: Transform3D = \
+			game_layout.get_hand_transform(
+				bot_player_id,
+				index,
+				opponent.hand.size()
+			)
+
+		card_view.move_home(
+			target_transform
+		)
+
+func _refresh_board_disabled_visuals(
+	animate_changes: bool = true,
+	owner_filter: int = -1
+) -> float:
+	if engine == null:
+		return 0.0
+
+	if engine.state == null:
+		return 0.0
+
+	var longest_hit_duration: float = 0.0
+
+	for player_id: int in [1, 2]:
+		if owner_filter != -1 and player_id != owner_filter:
+			continue
+		var player: PlayerState = engine.state.get_player(
+			player_id
+		)
+
+		if player == null:
+			continue
+
+		for slot_id: int in SlotID.all_slots():
+			var card: CardInstance = player.board.get_card(
+				slot_id
+			)
+
+			if card == null:
+				continue
+
+			var card_view := card_views.get(
+				card.instance_id,
+				null
+			) as Card3D
+
+			if card_view == null:
+				continue
+
+			var source_card: CardInstance = (
+				_find_disabler_source_for_target(
+					player_id,
+					slot_id,
+					card
+				)
+			)
+
+			var disabled: bool = source_card != null
+
+			var was_disabled: bool = card_view.is_disabled
+
+			card_view.set_disabled(
+				disabled,
+				false
+			)
+			card_view.refresh_card_status(
+				engine.state.turn_number,
+				animate_changes
+			)
+
+			var became_disabled: bool = (
+				disabled
+				and not was_disabled
+			)
+
+			if (
+				animate_changes
+				and became_disabled
+				and source_card != null
+				and source_card.definition != null
+				and vfx_manager != null
+			):
+				var source_view := card_views.get(
+					source_card.instance_id,
+					null
+				) as Card3D
+
+				var hit_duration: float = vfx_manager.play_vfx(
+					source_card.definition.target_vfx,
+					source_view,
+					card_view
+				)
+
+				longest_hit_duration = maxf(
+					longest_hit_duration,
+					hit_duration
+				)
+
+	return longest_hit_duration
+
+func _is_card_visually_disabled(
+	target_owner_id: int,
+	target_slot_id: int,
+	target_card: CardInstance
+) -> bool:
+	return (
+		_find_disabler_source_for_target(
+			target_owner_id,
+			target_slot_id,
+			target_card
+		)
+		!= null
+	)
+
+func _find_disabler_source_for_target(
+	target_owner_id: int,
+	target_slot_id: int,
+	target_card: CardInstance
+) -> CardInstance:
+	if state == null:
+		return null
+
+	if target_card == null:
+		return null
+
+	var source_owner_id: int = (
+		2 if target_owner_id == 1 else 1
+	)
+
+	var source_player: PlayerState = state.get_player(
+		source_owner_id
+	)
+
+	if source_player == null:
+		return null
+
+	for source_slot_id: int in SlotID.all_slots():
+		var source_card: CardInstance = source_player.board.get_card(
+			source_slot_id
+		)
+
+		if source_card == null:
+			continue
+
+		if source_card.definition == null:
+			continue
+
+		var behavior := (
+			source_card.definition.behavior
+			as DisableGestureBehavior
+		)
+
+		if behavior == null:
+			continue
+
+		var source_view := card_views.get(
+			source_card.instance_id,
+			null
+		) as Card3D
+
+		if source_view == null:
+			continue
+
+		if not source_view.visible:
+			continue
+
+		if behavior.disables_target(
+			source_slot_id,
+			target_slot_id,
+			target_card
+		):
+			return source_card
+
+	return null
+
+
+func _start_animated_combat() -> void:
+	interaction_locked = true
+
+	await _play_collector_vfx_before_combat()
+
+	if online_mode:
+		online_battle_apply_index = 0
+		seed(maxi(1, online_battle_seed))
+
+	var sequence: BattleSequence = engine.begin_combat()
+
+	if sequence == null:
+		push_error("Could not begin battle sequence.")
+		if online_mode:
+			_report_online_client_fault("begin_combat_failed")
+			return
+		interaction_locked = false
+		hud.set_interaction_enabled(true)
+		_refresh_rush_sacrifice_ui()
+		return
+
+	await _sync_visual_state()
+
+	_refresh_board_disabled_visuals(false)
+	_refresh_battle_scores()
+
+	print(
+		"ANIMATED COMBAT STARTED | acts=",
+		sequence.acts.size()
+	)
+
+	# Combat is presented in three fast visual phases:
+	# 1) Both players attack the Dealer together.
+	# 2) Front-row PvP clashes.
+	# 3) Back-row PvP clashes.
+	#
+	# BattleResolver still owns all combat rules. This controller only groups
+	# the already-created BattleActs so the animation is faster and clearer.
+	await _play_grouped_combat_sequence(sequence)
+
+	# تمام Clashهای هر دو بازیکن کامل محاسبه شده‌اند.
+	# حالا برای اولین بار اختلاف نهایی را بررسی می‌کنیم.
+	var game_ended: bool = \
+		engine.finalize_combat_score()
+
+	_refresh_battle_scores()
+
+	if game_ended:
+		if online_mode:
+			interaction_locked = true
+			hud.set_interaction_enabled(false)
+			var final_digest := _build_online_state_digest()
+			if online_session != null:
+				online_session.complete_turn(
+					online_resolving_turn,
+					final_digest,
+					true,
+					state.winner_id
+				)
+			return
+		_finish_game()
+		return
+
+	var retained_cards: Array[CardInstance] = []
+	var online_retained_cards: Dictionary = {1: [], 2: []}
+	if not state.rush_mode_enabled:
+		if online_mode:
+			for player_id: int in [1, 2]:
+				online_retained_cards[player_id] = _take_selected_cards_from_player_hand(
+					player_id,
+					online_keep_ids_by_player.get(player_id, []) as Array
+				)
+		else:
+			retained_cards = _take_selected_cards_from_local_hand()
+
+	# یادمان باشد الان چه کارت‌هایی روی زمین Dealer هستند.
+	var previous_dealer_card_ids: Dictionary = \
+		_get_dealer_card_ids()
+
+	if tutorial_controller != null and tutorial_controller.is_active():
+		tutorial_controller.prepare_next_dealer_before_finish_combat()
+
+	if online_mode:
+		seed(online_next_turn_seed)
+	engine.finish_combat()
+
+	# Rush penalties are already removed from MatchState, but the OLD hand
+	# views are still on screen. Animate those exact cards before syncing the
+	# newly drawn hand so the sacrifice is readable to the player.
+	if state.rush_mode_enabled:
+		await _play_rush_unused_mana_penalty_visuals()
+
+	if online_mode and not state.rush_mode_enabled:
+		for player_id: int in [1, 2]:
+			_restore_retained_cards_to_player_hand(
+				player_id,
+				online_retained_cards.get(player_id, []) as Array
+			)
+			_return_excess_hand_cards_to_draw_pile(player_id)
+	else:
+		_restore_retained_cards_to_local_hand(
+			retained_cards
+		)
+		_return_excess_local_hand_cards_to_draw_pile()
+
+	kept_hand_card_ids.clear()
+	online_keep_ids_by_player = {1: [], 2: []}
+
+	if state.is_game_over():
+		await _sync_visual_state()
+		_refresh_battle_scores()
+		if online_mode:
+			interaction_locked = true
+			hud.set_interaction_enabled(false)
+			var final_digest := _build_online_state_digest()
+			if online_session != null:
+				online_session.complete_turn(
+					online_resolving_turn,
+					final_digest,
+					true,
+					state.winner_id
+				)
+			return
+		_finish_game()
+		return
+
+	if tutorial_controller != null and tutorial_controller.is_active():
+		tutorial_controller.prepare_new_turn_state()
+
+	# Turn جدید کامل ساخته شده ولی Player هنوز حرکت مخفی انجام نداده.
+	# این وضعیت، حافظه عمومی Fair Bot برای کل این Turn است.
+	_capture_fair_bot_knowledge()
+
+	await _sync_visual_state()
+	# هر Dealer card جدیدی که Placed VFX دارد، الان افکتش را پخش کن.
+	await _play_new_dealer_placed_vfx(
+		previous_dealer_card_ids
+	)
+	if tutorial_controller != null and tutorial_controller.is_active():
+		tutorial_controller.sync_visual_visibility()
+
+	hud.refresh(
+		state,
+		local_player_id
+	)
+
+	_refresh_battle_scores()
+	_refresh_board_disabled_visuals(false)
+
+	if online_mode:
+		interaction_locked = true
+		hud.set_interaction_enabled(false)
+		var digest := _build_online_state_digest()
+		if digest.is_empty():
+			_report_online_client_fault("empty_state_digest")
+			return
+		if online_session != null:
+			online_session.complete_turn(online_resolving_turn, digest)
+		return
+
+	interaction_locked = false
+	hud.set_interaction_enabled(true)
+	_refresh_rush_sacrifice_ui()
+
+	if tutorial_controller != null and tutorial_controller.is_active():
+		tutorial_controller.notify_combat_finished()
+
+
+func _reveal_hidden_hero_views() -> void:
+	if state == null or game_layout == null:
+		return
+
+	var revealed_views: Array[Card3D] = []
+	for player_id: int in [1, 2]:
+		var player: PlayerState = state.get_player(player_id)
+		if player == null or player.hero == null:
+			continue
+		var hero: CardInstance = player.hero
+		if not hero.hero_revealed:
+			continue
+		if card_views.has(hero.instance_id):
+			continue
+		if not SlotID.is_valid(hero.current_slot):
+			continue
+
+		var hero_view: Card3D = _create_card_view(
+			hero,
+			_get_current_board_visual_transform(player_id, hero.current_slot),
+			player_id == local_player_id,
+			true
+		)
+		if hero_view == null:
+			continue
+		if player_id == local_player_id:
+			hero_view.drag_requested.connect(Callable(self, "_start_card_drag"))
+		hero_view.set_shield_count(hero.shield_count, false)
+		hero_view.refresh_hero_status(state.turn_number)
+		hero_view.scale = Vector3.ZERO
+		revealed_views.append(hero_view)
+
+	if revealed_views.is_empty():
+		return
+
+	var tween := create_tween()
+	tween.set_parallel(true)
+	for hero_view: Card3D in revealed_views:
+		tween.tween_property(
+			hero_view,
+			"scale",
+			Vector3.ONE,
+			0.32
+		).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	await tween.finished
+
+	if is_instance_valid(hero_power_control):
+		hero_power_control.bind_match(engine, local_player_id)
+
+
+func _play_grouped_combat_sequence(
+	sequence: BattleSequence
+) -> void:
+	if sequence == null:
+		return
+
+	var acts: Array[BattleAct] = sequence.acts
+
+	# Dealer combat is now split by row:
+	# FRONT rises/attacks/returns first, then BACK does the same.
+	await _play_dealer_row_combat_phase(
+		acts,
+		SlotID.Row.FRONT
+	)
+
+	if combat_phase_pause > 0.0:
+		await get_tree().create_timer(
+			combat_phase_pause
+		).timeout
+
+	await _play_dealer_row_combat_phase(
+		acts,
+		SlotID.Row.BACK
+	)
+
+	if combat_phase_pause > 0.0:
+		await get_tree().create_timer(
+			combat_phase_pause
+		).timeout
+
+	# PvP follows the same front-then-back presentation.
+	await _play_pvp_row_combat_phase(
+		acts,
+		SlotID.Row.FRONT
+	)
+
+	if combat_phase_pause > 0.0:
+		await get_tree().create_timer(
+			combat_phase_pause
+		).timeout
+
+	await _play_pvp_row_combat_phase(
+		acts,
+		SlotID.Row.BACK
+	)
+
+	# Safety net for future BattleAct types.
+	for act: BattleAct in acts:
+		if act == null:
+			continue
+
+		if act.resolved:
+			continue
+
+		await _animate_battle_act(act)
+		_apply_battle_act_network_safe(act)
+		_refresh_board_shield_visuals()
+		_refresh_battle_scores()
+
+
+func _play_dealer_row_combat_phase(
+	acts: Array[BattleAct],
+	row: int
+) -> void:
+	var row_dealer_acts: Array[BattleAct] = []
+
+	for act: BattleAct in acts:
+		if act == null:
+			continue
+
+		if not (
+			act.type in [
+				BattleAct.Type.PLAYER_VS_DEALER,
+				BattleAct.Type.MUSTACHE_SWEEP,
+				BattleAct.Type.CHAINSAW_SWEEP
+			]
+		):
+			continue
+
+		if not SlotID.is_valid(act.attacker_slot_id):
+			continue
+
+		if SlotID.get_row(act.attacker_slot_id) != row:
+			continue
+
+		row_dealer_acts.append(act)
+
+	if row_dealer_acts.is_empty():
+		return
+
+	# All participating cards in THIS row rise together.
+	var original_positions: Dictionary = await _lift_cards_for_acts(
+		row_dealer_acts,
+		false
+	)
+
+	var regular_waves: Array = \
+		_build_dealer_regular_waves_for_row(
+			row_dealer_acts,
+			row
+		)
+
+	# Schedule regular attacks with real overlap.
+	# Different cards can start before the previous attack has returned.
+	# A card that is used again (important in the middle lane) is locked until
+	# its previous attack cycle has finished.
+	await _play_overlapped_dealer_waves(
+		regular_waves
+	)
+
+	# Special sweep acts keep their dedicated VFX sequence. They are still
+	# row-scoped, but are not mixed into overlapping position tweens because
+	# they can move several cards at once.
+	for special_act: BattleAct in row_dealer_acts:
+		if special_act == null or special_act.resolved:
+			continue
+
+		if (
+			special_act.type != BattleAct.Type.MUSTACHE_SWEEP
+			and special_act.type != BattleAct.Type.CHAINSAW_SWEEP
+		):
+			continue
+
+		await _animate_battle_act(special_act)
+		_apply_battle_act_network_safe(special_act)
+		_refresh_board_shield_visuals()
+		_refresh_battle_scores()
+
+	await _restore_lifted_cards(original_positions)
+
+
+func _build_dealer_regular_waves_for_row(
+	acts: Array[BattleAct],
+	row: int
+) -> Array:
+	var waves: Array = []
+	var row_slots: Array[int] = _get_board_slots_for_row(row)
+
+	# First pass: one target per card. This lets LEFT, MIDDLE and RIGHT attacks
+	# overlap visibly instead of waiting for a complete attack-return cycle.
+	for slot_id: int in row_slots:
+		var targets: Array[int] = \
+			_get_dealer_targets_for_board_slot(slot_id)
+
+		if targets.is_empty():
+			continue
+
+		var first_wave: Array[BattleAct] = \
+			_collect_dealer_wave(
+				acts,
+				slot_id,
+				targets[0]
+			)
+
+		if not first_wave.is_empty():
+			waves.append(first_wave)
+
+	# Second pass: only middle cards have a second Dealer target.
+	# The overlap scheduler below knows these cards are reused and waits just
+	# long enough for that specific card to be free again.
+	for slot_id: int in row_slots:
+		var targets: Array[int] = \
+			_get_dealer_targets_for_board_slot(slot_id)
+
+		if targets.size() < 2:
+			continue
+
+		var second_wave: Array[BattleAct] = \
+			_collect_dealer_wave(
+				acts,
+				slot_id,
+				targets[1]
+			)
+
+		if not second_wave.is_empty():
+			waves.append(second_wave)
+
+	return waves
+
+
+func _collect_dealer_wave(
+	acts: Array[BattleAct],
+	slot_id: int,
+	dealer_slot_id: int
+) -> Array[BattleAct]:
+	var wave: Array[BattleAct] = []
+
+	for act: BattleAct in acts:
+		if act == null or act.resolved:
+			continue
+
+		if act.type != BattleAct.Type.PLAYER_VS_DEALER:
+			continue
+
+		if act.attacker_slot_id != slot_id:
+			continue
+
+		if act.dealer_slot_id != dealer_slot_id:
+			continue
+
+		# Same board slot + same Dealer target means P1 and P2 can attack
+		# together in the same visual wave.
+		wave.append(act)
+
+	return wave
+
+
+func _play_overlapped_dealer_waves(
+	waves: Array
+) -> void:
+	if waves.is_empty():
+		return
+
+	var available_at: Dictionary = {}
+	var schedules: Array[Dictionary] = []
+	var base_start: float = 0.0
+	var cycle_time: float = _get_regular_attack_cycle_time()
+
+	for wave_variant: Array in waves:
+		var wave: Array[BattleAct] = []
+		wave.assign(wave_variant)
+
+		if wave.is_empty():
+			continue
+
+		var start_at: float = base_start
+
+		for act: BattleAct in wave:
+			if act == null or act.attacker == null:
+				continue
+
+			var attacker_id: int = act.attacker.instance_id
+			start_at = maxf(
+				start_at,
+				float(available_at.get(attacker_id, 0.0))
+			)
+
+			# A Dealer card may be targeted by several middle-lane attacks.
+			# Do not start a second impact on that exact Dealer until its short
+			# recoil has recovered; attacks on other Dealer cards still overlap.
+			if act.defender != null:
+				var dealer_id: int = act.defender.instance_id
+				start_at = maxf(
+					start_at,
+					float(available_at.get(dealer_id, 0.0))
+				)
+
+		for act: BattleAct in wave:
+			if act == null or act.attacker == null:
+				continue
+
+			var attacker_lock_time: float = cycle_time
+
+			if act.attacker_owner_id == local_player_id:
+				attacker_lock_time = maxf(
+					attacker_lock_time,
+					combat_attack_time
+					+ _get_result_vfx_duration(
+						act.attacker_outcome
+					)
+				)
+
+			available_at[act.attacker.instance_id] = \
+				start_at + attacker_lock_time
+
+			if act.defender != null:
+				available_at[act.defender.instance_id] = maxf(
+					float(available_at.get(
+						act.defender.instance_id,
+						0.0
+					)),
+					start_at
+					+ dealer_recoil_out_time
+					+ dealer_recoil_return_time
+				)
+
+		schedules.append({
+			"wave": wave,
+			"delay": start_at
+		})
+
+		# This is a START gap, not a "wait until animation finished" gap.
+		base_start += combat_attack_gap
+
+	if schedules.is_empty():
+		return
+
+	var tracker: Dictionary = {
+		"remaining": schedules.size()
+	}
+
+	for schedule: Dictionary in schedules:
+		var scheduled_wave: Array[BattleAct] = []
+		scheduled_wave.assign(
+			schedule.get("wave", [])
+		)
+
+		var delay: float = float(
+			schedule.get("delay", 0.0)
+		)
+
+		_run_dealer_wave_overlapped(
+			scheduled_wave,
+			delay,
+			tracker
+		)
+
+	await _wait_for_overlap_tracker(tracker)
+
+
+func _run_dealer_wave_overlapped(
+	wave: Array[BattleAct],
+	delay: float,
+	tracker: Dictionary
+) -> void:
+	if delay > 0.0:
+		await get_tree().create_timer(delay).timeout
+
+	await _animate_player_vs_dealer_wave(wave)
+
+	for act: BattleAct in wave:
+		if act == null or act.resolved:
+			continue
+
+		_apply_battle_act_network_safe(act)
+
+	_refresh_board_shield_visuals()
+	_refresh_battle_scores()
+	_finish_overlap_tracker_step(tracker)
+
+
+func _play_pvp_row_combat_phase(
+	acts: Array[BattleAct],
+	row: int
+) -> void:
+	var row_acts: Array[BattleAct] = []
+
+	for act: BattleAct in acts:
+		if act == null:
+			continue
+
+		if act.type != BattleAct.Type.PLAYER_VS_PLAYER:
+			continue
+
+		if not SlotID.is_valid(act.attacker_slot_id):
+			continue
+
+		if SlotID.get_row(act.attacker_slot_id) != row:
+			continue
+
+		row_acts.append(act)
+
+	if row_acts.is_empty():
+		return
+
+	# All cards involved in this PvP row rise together first.
+	var original_positions: Dictionary = await _lift_cards_for_acts(
+		row_acts,
+		true
+	)
+
+	# Real overlap with collision-safe scheduling:
+	# independent clashes are staggered by combat_attack_gap, but if a middle
+	# card appears in another clash, that specific clash waits for the card.
+	await _play_overlapped_pvp_acts(row_acts)
+
+	await _restore_lifted_cards(original_positions)
+
+
+func _play_overlapped_pvp_acts(
+	acts: Array[BattleAct]
+) -> void:
+	if acts.is_empty():
+		return
+
+	var available_at: Dictionary = {}
+	var schedules: Array[Dictionary] = []
+	var base_start: float = 0.0
+	var cycle_time: float = _get_regular_attack_cycle_time()
+
+	for act: BattleAct in acts:
+		if act == null or act.resolved:
+			continue
+
+		if act.attacker == null or act.defender == null:
+			continue
+
+		var start_at: float = base_start
+		var attacker_id: int = act.attacker.instance_id
+		var defender_id: int = act.defender.instance_id
+
+		start_at = maxf(
+			start_at,
+			float(available_at.get(attacker_id, 0.0))
+		)
+		start_at = maxf(
+			start_at,
+			float(available_at.get(defender_id, 0.0))
+		)
+
+		var attacker_lock_time: float = cycle_time
+		var defender_lock_time: float = cycle_time
+
+		if act.attacker_owner_id == local_player_id:
+			attacker_lock_time = maxf(
+				attacker_lock_time,
+				combat_attack_time
+				+ _get_result_vfx_duration(
+					act.attacker_outcome
+				)
+			)
+
+		if act.defender_owner_id == local_player_id:
+			defender_lock_time = maxf(
+				defender_lock_time,
+				combat_attack_time
+				+ _get_result_vfx_duration(
+					act.defender_outcome
+				)
+			)
+
+		available_at[attacker_id] = \
+			start_at + attacker_lock_time
+		available_at[defender_id] = \
+			start_at + defender_lock_time
+
+		schedules.append({
+			"act": act,
+			"delay": start_at
+		})
+
+		base_start += combat_attack_gap
+
+	if schedules.is_empty():
+		return
+
+	var tracker: Dictionary = {
+		"remaining": schedules.size()
+	}
+
+	for schedule: Dictionary in schedules:
+		var scheduled_act := schedule.get(
+			"act",
+			null
+		) as BattleAct
+
+		if scheduled_act == null:
+			_finish_overlap_tracker_step(tracker)
+			continue
+
+		var delay: float = float(
+			schedule.get("delay", 0.0)
+		)
+
+		_run_pvp_act_overlapped(
+			scheduled_act,
+			delay,
+			tracker
+		)
+
+	await _wait_for_overlap_tracker(tracker)
+
+
+func _run_pvp_act_overlapped(
+	act: BattleAct,
+	delay: float,
+	tracker: Dictionary
+) -> void:
+	if delay > 0.0:
+		await get_tree().create_timer(delay).timeout
+
+	await _animate_player_clash(act)
+
+	if not act.resolved:
+		_apply_battle_act_network_safe(act)
+
+	_refresh_board_shield_visuals()
+	_refresh_battle_scores()
+	_finish_overlap_tracker_step(tracker)
+
+
+func _wait_for_overlap_tracker(
+	tracker: Dictionary
+) -> void:
+	while int(tracker.get("remaining", 0)) > 0:
+		await overlap_combat_step_finished
+
+
+func _finish_overlap_tracker_step(
+	tracker: Dictionary
+) -> void:
+	var remaining: int = max(
+		0,
+		int(tracker.get("remaining", 0)) - 1
+	)
+
+	tracker["remaining"] = remaining
+	overlap_combat_step_finished.emit()
+
+
+func _get_regular_attack_cycle_time() -> float:
+	return (
+		combat_attack_time
+		+ combat_hit_pause
+		+ combat_return_time
+	)
+
+
+func _get_board_slots_for_row(
+	row: int
+) -> Array[int]:
+	if row == SlotID.Row.FRONT:
+		return [
+			SlotID.Type.FRONT_LEFT,
+			SlotID.Type.FRONT_MIDDLE_0,
+			SlotID.Type.FRONT_MIDDLE_1,
+			SlotID.Type.FRONT_RIGHT
+		]
+
+	return [
+		SlotID.Type.BACK_LEFT,
+		SlotID.Type.BACK_MIDDLE_0,
+		SlotID.Type.BACK_MIDDLE_1,
+		SlotID.Type.BACK_RIGHT
+	]
+
+
+func _get_dealer_targets_for_board_slot(
+	slot_id: int
+) -> Array[int]:
+	match slot_id:
+		SlotID.Type.FRONT_LEFT, SlotID.Type.BACK_LEFT:
+			return [DealerSlotID.Type.LEFT]
+
+		SlotID.Type.FRONT_RIGHT, SlotID.Type.BACK_RIGHT:
+			return [DealerSlotID.Type.RIGHT]
+
+		SlotID.Type.FRONT_MIDDLE_0, \
+		SlotID.Type.FRONT_MIDDLE_1, \
+		SlotID.Type.BACK_MIDDLE_0, \
+		SlotID.Type.BACK_MIDDLE_1:
+			# Middle is intentionally different: each player middle card
+			# attacks both Dealer middle cards.
+			return [
+				DealerSlotID.Type.MIDDLE_0,
+				DealerSlotID.Type.MIDDLE_1
+			]
+
+	return []
+
+
+func _lift_cards_for_acts(
+	acts: Array[BattleAct],
+	include_defenders: bool
+) -> Dictionary:
+	var original_positions: Dictionary = {}
+	var views_to_lift: Array[Card3D] = []
+
+	for act: BattleAct in acts:
+		if act == null:
+			continue
+
+		var cards: Array[CardInstance] = []
+
+		if act.attacker != null:
+			cards.append(act.attacker)
+
+		if include_defenders and act.defender != null:
+			cards.append(act.defender)
+
+		for card: CardInstance in cards:
+			if card == null:
+				continue
+
+			if original_positions.has(card.instance_id):
+				continue
+
+			var card_view := card_views.get(
+				card.instance_id,
+				null
+			) as Card3D
+
+			if card_view == null:
+				continue
+
+			if not is_instance_valid(card_view):
+				continue
+
+			original_positions[card.instance_id] = \
+				card_view.global_position
+			views_to_lift.append(card_view)
+
+	if views_to_lift.is_empty():
+		return original_positions
+
+	var lift_tween: Tween = create_tween()
+	lift_tween.set_parallel(true)
+
+	for card_view: Card3D in views_to_lift:
+		if not is_instance_valid(card_view):
+			continue
+
+		var lifted_position: Vector3 = \
+			card_view.global_position + Vector3.UP * combat_lift_height
+
+		lift_tween.tween_property(
+			card_view,
+			"global_position",
+			lifted_position,
+			combat_lift_time
+		).set_trans(
+			Tween.TRANS_QUAD
+		).set_ease(
+			Tween.EASE_OUT
+		)
+
+	await lift_tween.finished
+	return original_positions
+
+
+func _restore_lifted_cards(
+	original_positions: Dictionary
+) -> void:
+	if original_positions.is_empty():
+		return
+
+	var return_tween: Tween = create_tween()
+	return_tween.set_parallel(true)
+	var has_valid_view: bool = false
+
+	for raw_instance_id: Variant in original_positions.keys():
+		var instance_id: int = int(raw_instance_id)
+		var card_view := card_views.get(
+			instance_id,
+			null
+		) as Card3D
+
+		if card_view == null:
+			continue
+
+		if not is_instance_valid(card_view):
+			continue
+
+		has_valid_view = true
+		return_tween.tween_property(
+			card_view,
+			"global_position",
+			original_positions[raw_instance_id],
+			combat_lift_time
+		).set_trans(
+			Tween.TRANS_QUAD
+		).set_ease(
+			Tween.EASE_IN
+		)
+
+	if has_valid_view:
+		await return_tween.finished
+
+
+func _animate_player_vs_dealer_wave(
+	wave: Array[BattleAct]
+) -> void:
+	if wave.is_empty():
+		return
+
+	var start_positions: Dictionary = {}
+	var valid_acts: Array[BattleAct] = []
+	var attack_tween: Tween = create_tween()
+	attack_tween.set_parallel(true)
+
+	for act: BattleAct in wave:
+		if act == null:
+			continue
+
+		if act.attacker == null or act.defender == null:
+			continue
+
+		var attacker_view := card_views.get(
+			act.attacker.instance_id,
+			null
+		) as Card3D
+
+		var dealer_view := card_views.get(
+			act.defender.instance_id,
+			null
+		) as Card3D
+
+		if attacker_view == null or dealer_view == null:
+			continue
+
+		if not is_instance_valid(attacker_view):
+			continue
+
+		if not is_instance_valid(dealer_view):
+			continue
+
+		var attacker_start: Vector3 = \
+			attacker_view.global_position
+		var dealer_position: Vector3 = \
+			dealer_view.global_position
+
+		# Dealer combat must read as an attack ON the Dealer, not as a PvP
+		# midpoint clash. Stop almost on top of the Dealer card.
+		var hit_position: Vector3 = dealer_position.lerp(
+			attacker_start,
+			dealer_attack_stop_ratio
+		)
+		hit_position.y += 0.10
+
+		start_positions[act.attacker.instance_id] = attacker_start
+		valid_acts.append(act)
+
+		attack_tween.tween_property(
+			attacker_view,
+			"global_position",
+			hit_position,
+			combat_attack_time
+		).set_trans(
+			Tween.TRANS_QUAD
+		).set_ease(
+			Tween.EASE_IN
+		)
+
+	if valid_acts.is_empty():
+		return
+
+	await attack_tween.finished
+
+	# Make the Dealer visibly absorb the hit. This is the key visual
+	# distinction from PvP, where both player cards travel to a midpoint.
+	_start_dealer_hit_reactions(valid_acts, start_positions)
+
+	# The local player's WIN / LOSS / DRAW pops at the hit moment.
+	# It keeps playing while the card returns, so combat stays fast.
+	var result_tracker: Dictionary = \
+		_start_local_result_vfx_for_acts(valid_acts)
+
+	if combat_hit_pause > 0.0:
+		await get_tree().create_timer(
+			combat_hit_pause
+		).timeout
+
+	var return_tween: Tween = create_tween()
+	return_tween.set_parallel(true)
+
+	for act: BattleAct in valid_acts:
+		var attacker_view := card_views.get(
+			act.attacker.instance_id,
+			null
+		) as Card3D
+
+		if attacker_view == null:
+			continue
+
+		if not is_instance_valid(attacker_view):
+			continue
+
+		return_tween.tween_property(
+			attacker_view,
+			"global_position",
+			start_positions[act.attacker.instance_id],
+			combat_return_time
+		).set_trans(
+			Tween.TRANS_QUAD
+		).set_ease(
+			Tween.EASE_OUT
+		)
+
+	await return_tween.finished
+
+	# Fury reads as a real second strike instead of only doubling the numbers.
+	for fury_act: BattleAct in valid_acts:
+		if fury_act != null and fury_act.attacker_landed_hits > 1:
+			await _animate_fury_extra_dealer_hit(fury_act)
+
+	# If the Dealer recoil is a hair longer than the attacker return, finish
+	# that impact before this wave reports itself complete.
+	var dealer_reaction_remaining: float = maxf(
+		0.0,
+		dealer_recoil_out_time
+		+ dealer_recoil_return_time
+		- combat_hit_pause
+		- combat_return_time
+	)
+	if dealer_reaction_remaining > 0.0:
+		await get_tree().create_timer(dealer_reaction_remaining).timeout
+
+	await _wait_for_result_vfx_tracker(result_tracker)
+
+
+
+
+func _animate_fury_extra_dealer_hit(act: BattleAct) -> void:
+	if act == null or act.attacker_landed_hits <= 1:
+		return
+	if act.attacker == null or act.defender == null:
+		return
+	var attacker_view := card_views.get(act.attacker.instance_id, null) as Card3D
+	var dealer_view := card_views.get(act.defender.instance_id, null) as Card3D
+	if attacker_view == null or dealer_view == null:
+		return
+	var start: Vector3 = attacker_view.global_position
+	var target: Vector3 = dealer_view.global_position.lerp(
+		start,
+		dealer_attack_stop_ratio
+	) + Vector3.UP * 0.10
+	var attack := create_tween()
+	attack.tween_property(attacker_view, "global_position", target, combat_attack_time * 0.8)
+	await attack.finished
+	var fallback_positions: Dictionary = {act.attacker.instance_id: start}
+	_start_dealer_hit_reactions([act], fallback_positions)
+	if combat_hit_pause > 0.0:
+		await get_tree().create_timer(combat_hit_pause).timeout
+	var back := create_tween()
+	back.tween_property(attacker_view, "global_position", start, combat_return_time * 0.8)
+	await back.finished
+
+
+func _start_dealer_hit_reactions(
+	acts: Array[BattleAct],
+	attacker_start_positions: Dictionary
+) -> void:
+	var processed_dealers: Dictionary = {}
+
+	for act: BattleAct in acts:
+		if act == null or act.defender == null:
+			continue
+
+		var dealer_id: int = act.defender.instance_id
+		if processed_dealers.has(dealer_id):
+			continue
+		processed_dealers[dealer_id] = true
+
+		var dealer_view := card_views.get(
+			dealer_id,
+			null
+		) as Card3D
+		if dealer_view == null or not is_instance_valid(dealer_view):
+			continue
+
+		var dealer_start: Vector3 = dealer_view.global_position
+		var away_vector: Vector3 = Vector3.ZERO
+
+		# Average the incoming attack directions. If P1 and P2 hit the same
+		# Dealer from opposite sides, horizontal recoil cancels naturally but
+		# the upward pop still makes the impact obvious.
+		for source_act: BattleAct in acts:
+			if source_act == null or source_act.defender == null:
+				continue
+			if source_act.defender.instance_id != dealer_id:
+				continue
+			if source_act.attacker == null:
+				continue
+
+			var attacker_start_variant: Variant = attacker_start_positions.get(
+				source_act.attacker.instance_id,
+				null
+			)
+			if attacker_start_variant == null:
+				continue
+
+			var attacker_start: Vector3 = attacker_start_variant
+			var incoming_away: Vector3 = dealer_start - attacker_start
+			incoming_away.y = 0.0
+			if incoming_away.length_squared() > 0.0001:
+				away_vector += incoming_away.normalized()
+
+		if away_vector.length_squared() > 0.0001:
+			away_vector = away_vector.normalized()
+
+		var recoil_target: Vector3 = dealer_start
+		recoil_target += away_vector * dealer_recoil_distance
+		recoil_target += Vector3.UP * dealer_recoil_height
+
+		var reaction_tween: Tween = create_tween()
+		reaction_tween.tween_property(
+			dealer_view,
+			"global_position",
+			recoil_target,
+			dealer_recoil_out_time
+		).set_trans(
+			Tween.TRANS_QUAD
+		).set_ease(
+			Tween.EASE_OUT
+		)
+
+		reaction_tween.tween_property(
+			dealer_view,
+			"global_position",
+			dealer_start,
+			dealer_recoil_return_time
+		).set_trans(
+			Tween.TRANS_QUAD
+		).set_ease(
+			Tween.EASE_IN
+		)
+
+
+
+
+func _play_rush_unused_mana_penalty_visuals() -> void:
+	if engine == null or state == null:
+		return
+
+	var longest_duration: float = 0.0
+
+	for player_id: int in [1, 2]:
+		var removed_cards: Array[CardInstance] = \
+			engine.get_last_rush_penalty_cards(player_id)
+
+		for card: CardInstance in removed_cards:
+			if card == null:
+				continue
+
+			var card_view: Card3D = null
+
+			if player_id == local_player_id:
+				card_view = card_views.get(
+					card.instance_id,
+					null
+				) as Card3D
+			else:
+				card_view = opponent_hand_views.get(
+					card.instance_id,
+					null
+				) as Card3D
+
+			if card_view == null or not is_instance_valid(card_view):
+				continue
+
+			# Opponent cards stay face-down. We animate the existing hidden view;
+			# no private card identity is revealed.
+			var duration: float = card_view.play_rush_penalty_remove(
+				rush_penalty_raise_height,
+				rush_penalty_fade_time
+			)
+			longest_duration = maxf(longest_duration, duration)
+
+	if longest_duration > 0.0:
+		await get_tree().create_timer(longest_duration).timeout
+
+
+func _take_selected_cards_from_player_hand(
+	player_id: int,
+	keep_ids: Array
+) -> Array[CardInstance]:
+	var retained_cards: Array[CardInstance] = []
+	if state == null:
+		return retained_cards
+	var player: PlayerState = state.get_player(player_id)
+	if player == null:
+		return retained_cards
+	var keep_lookup: Dictionary = {}
+	for raw_id: Variant in keep_ids:
+		keep_lookup[int(raw_id)] = true
+	for index: int in range(player.hand.size() - 1, -1, -1):
+		var card: CardInstance = player.hand[index]
+		if card == null or not keep_lookup.has(card.instance_id):
+			continue
+		player.hand.remove_at(index)
+		retained_cards.push_front(card)
+	return retained_cards
+
+
+func _restore_retained_cards_to_player_hand(
+	player_id: int,
+	retained_cards: Array
+) -> void:
+	if state == null:
+		return
+	var player: PlayerState = state.get_player(player_id)
+	if player == null:
+		return
+	for index: int in range(retained_cards.size()):
+		var card := retained_cards[index] as CardInstance
+		if card == null:
+			continue
+		card.zone = CardZone.Type.HAND
+		player.hand.insert(index, card)
+
+
+func _return_excess_hand_cards_to_draw_pile(player_id: int) -> void:
+	if state == null:
+		return
+	var player: PlayerState = state.get_player(player_id)
+	if player == null:
+		return
+	while player.hand.size() > MAX_HAND_CARDS:
+		var card: CardInstance = player.hand.pop_back()
+		if card == null:
+			continue
+		card.zone = CardZone.Type.DRAW
+		card.current_slot = CardInstance.NO_SLOT
+		player.draw_pile.append(card)
+
+
+func _take_selected_cards_from_local_hand() -> Array[CardInstance]:
+	var retained_cards: Array[CardInstance] = []
+
+	if state == null:
+		return retained_cards
+
+	var player: PlayerState = state.get_player(
+		local_player_id
+	)
+
+	if player == null:
+		return retained_cards
+
+	for index: int in range(
+		player.hand.size() - 1,
+		-1,
+		-1
+	):
+		var card: CardInstance = player.hand[index]
+
+		if card == null:
+			continue
+
+		if not kept_hand_card_ids.has(
+			card.instance_id
+		):
+			continue
+
+		player.hand.remove_at(index)
+		retained_cards.push_front(card)
+
+	return retained_cards
+
+
+func _restore_retained_cards_to_local_hand(
+	retained_cards: Array[CardInstance]
+) -> void:
+	if state == null:
+		return
+
+	var player: PlayerState = state.get_player(
+		local_player_id
+	)
+
+	if player == null:
+		return
+
+	for index: int in range(retained_cards.size()):
+		var card: CardInstance = retained_cards[index]
+
+		if card == null:
+			continue
+
+		card.zone = CardZone.Type.HAND
+		player.hand.insert(index, card)
+
+
+func _return_excess_local_hand_cards_to_draw_pile() -> void:
+	if state == null:
+		return
+
+	var player: PlayerState = state.get_player(
+		local_player_id
+	)
+
+	if player == null:
+		return
+
+	while player.hand.size() > MAX_HAND_CARDS:
+		var card: CardInstance = player.hand.pop_back()
+
+		if card == null:
+			continue
+
+		card.zone = CardZone.Type.DRAW
+		card.current_slot = CardInstance.NO_SLOT
+		player.draw_pile.append(card)
+
+func _animate_battle_act(
+	act: BattleAct
+) -> void:
+	if act == null:
+		return
+
+	match act.type:
+		BattleAct.Type.PLAYER_VS_DEALER:
+			await _animate_player_vs_dealer(
+				act
+			)
+
+		BattleAct.Type.PLAYER_VS_PLAYER:
+			await _animate_player_clash(
+				act
+			)
+
+		BattleAct.Type.MUSTACHE_SWEEP:
+			await _play_mustache_card_sequence(
+				act
+			)
+			await _play_local_result_vfx_for_act(act)
+
+		BattleAct.Type.CHAINSAW_SWEEP:
+			await _play_card_ability_vfx_for_act(
+				act
+			)
+			await _play_local_result_vfx_for_act(act)
+
+
+func _play_mustache_card_sequence(
+	act: BattleAct
+) -> void:
+	if act == null:
+		return
+
+	if act.attacker == null:
+		return
+
+	if act.attacker.definition == null:
+		return
+
+	if vfx_manager == null:
+		push_error("CardVFXManager3D is missing.")
+		return
+
+	var mustache_view := card_views.get(
+		act.attacker.instance_id,
+		null
+	) as Card3D
+
+	var vfx_definition: CardVFXDefinition = (
+		act.attacker.definition.ability_vfx
+	)
+
+	if vfx_definition == null:
+		push_warning(
+			"Mustache card has no ability VFX resource."
+		)
+		return
+
+	var affected_views: Array[Card3D] = []
+	var start_positions: Array[Vector3] = []
+
+	if mustache_view != null:
+		affected_views.append(mustache_view)
+		start_positions.append(
+			mustache_view.global_position
+		)
+
+	var owner: PlayerState = state.get_player(
+		act.attacker_owner_id
+	)
+
+	if owner != null:
+		for slot_id: int in SlotID.all_slots():
+			var rock_card: CardInstance = owner.board.get_card(
+				slot_id
+			)
+
+			if rock_card == null:
+				continue
+
+			if rock_card == act.attacker:
+				continue
+
+			if rock_card.definition == null:
+				continue
+
+			if (
+				rock_card.get_gesture()
+				!= CardGesture.Type.ROCK
+			):
+				continue
+
+			var rock_view := card_views.get(
+				rock_card.instance_id,
+				null
+			) as Card3D
+
+			if rock_view == null:
+				continue
+
+			if affected_views.has(rock_view):
+				continue
+
+			affected_views.append(rock_view)
+			start_positions.append(
+				rock_view.global_position
+			)
+
+	var center_position: Vector3 = (
+		vfx_manager.get_spawn_transform(
+			vfx_definition,
+			mustache_view
+		).origin
+	)
+
+	if not affected_views.is_empty():
+		var gather_tween: Tween = create_tween()
+		gather_tween.set_parallel(true)
+
+		for card_view: Card3D in affected_views:
+			gather_tween.tween_property(
+				card_view,
+				"global_position",
+				center_position,
+				0.28
+			).set_trans(
+				Tween.TRANS_QUAD
+			).set_ease(
+				Tween.EASE_IN
+			)
+
+		await gather_tween.finished
+
+		for card_view: Card3D in affected_views:
+			if is_instance_valid(card_view):
+				card_view.visible = false
+
+	var effect_duration: float = _play_card_ability_vfx(
+		act.attacker,
+		mustache_view
+	)
+
+	if effect_duration > 0.0:
+		await get_tree().create_timer(
+			effect_duration
+		).timeout
+
+	if affected_views.is_empty():
+		return
+
+	for card_view: Card3D in affected_views:
+		if not is_instance_valid(card_view):
+			continue
+
+		card_view.global_position = center_position
+		card_view.visible = true
+
+	var return_tween: Tween = create_tween()
+	return_tween.set_parallel(true)
+
+	for index: int in range(affected_views.size()):
+		var card_view: Card3D = affected_views[index]
+
+		if not is_instance_valid(card_view):
+			continue
+
+		return_tween.tween_property(
+			card_view,
+			"global_position",
+			start_positions[index],
+			0.32
+		).set_trans(
+			Tween.TRANS_QUAD
+		).set_ease(
+			Tween.EASE_OUT
+		)
+
+	await return_tween.finished
+
+
+func _play_card_ability_vfx_for_act(
+	act: BattleAct
+) -> void:
+	if act == null:
+		return
+
+	if act.attacker == null:
+		return
+
+	var source_view := card_views.get(
+		act.attacker.instance_id,
+		null
+	) as Card3D
+
+	var effect_duration: float = _play_card_ability_vfx(
+		act.attacker,
+		source_view
+	)
+
+	if effect_duration > 0.0:
+		await get_tree().create_timer(
+			effect_duration
+		).timeout
+
+
+func _play_card_ability_vfx(
+	card: CardInstance,
+	source_view: Card3D
+) -> float:
+	if card == null:
+		return 0.0
+
+	if card.definition == null:
+		return 0.0
+
+	if vfx_manager == null:
+		return 0.0
+
+	return vfx_manager.play_vfx(
+		card.definition.ability_vfx,
+		source_view
+	)
+
+func _animate_player_vs_dealer(
+	act: BattleAct
+) -> void:
+	if act == null:
+		return
+
+	if act.attacker == null:
+		return
+
+	if act.defender == null:
+		return
+
+
+
+	var attacker_view := card_views.get(
+		act.attacker.instance_id,
+		null
+	) as Card3D
+
+	var dealer_view := card_views.get(
+		act.defender.instance_id,
+		null
+	) as Card3D
+
+	if attacker_view == null:
+		push_error(
+			"Missing attacker view: %s | id=%s"
+			% [
+				act.attacker.definition.display_name,
+				act.attacker.instance_id
+			]
+		)
+		return
+
+	if dealer_view == null:
+		push_error(
+			"Missing dealer view: %s | id=%s"
+			% [
+				act.defender.definition.display_name,
+				act.defender.instance_id
+			]
+		)
+		return
+
+	var attacker_start: Vector3 = \
+		attacker_view.global_position
+
+	var dealer_position: Vector3 = \
+		dealer_view.global_position
+
+	var hit_position: Vector3 = dealer_position.lerp(
+		attacker_start,
+		dealer_attack_stop_ratio
+	)
+
+	hit_position.y += 0.10
+
+	var attack_tween: Tween = create_tween()
+
+	attack_tween.tween_property(
+		attacker_view,
+		"global_position",
+		hit_position,
+		combat_attack_time
+	).set_trans(
+		Tween.TRANS_QUAD
+	).set_ease(
+		Tween.EASE_IN
+	)
+
+	await attack_tween.finished
+
+	var fallback_positions: Dictionary = {
+		act.attacker.instance_id: attacker_start
+	}
+	_start_dealer_hit_reactions([act], fallback_positions)
+
+	var result_tracker: Dictionary = \
+		_start_local_result_vfx_for_act(act)
+
+	await get_tree().create_timer(
+		combat_hit_pause
+	).timeout
+
+	var return_tween: Tween = create_tween()
+
+	return_tween.tween_property(
+		attacker_view,
+		"global_position",
+		attacker_start,
+		combat_return_time
+	).set_trans(
+		Tween.TRANS_QUAD
+	).set_ease(
+		Tween.EASE_OUT
+	)
+
+	await return_tween.finished
+
+	var dealer_reaction_remaining: float = maxf(
+		0.0,
+		dealer_recoil_out_time
+		+ dealer_recoil_return_time
+		- combat_hit_pause
+		- combat_return_time
+	)
+	if dealer_reaction_remaining > 0.0:
+		await get_tree().create_timer(dealer_reaction_remaining).timeout
+
+	await _wait_for_result_vfx_tracker(result_tracker)
+
+
+
+func _animate_fury_extra_pvp_hit(
+	act: BattleAct,
+	first_view: Card3D,
+	second_view: Card3D,
+	first_start: Vector3,
+	second_start: Vector3
+) -> void:
+	if act == null:
+		return
+	var has_extra: bool = (
+		act.attacker_landed_hits > 1
+		or act.defender_landed_hits > 1
+	)
+	if not has_extra:
+		return
+
+	var winner_view: Card3D = first_view if act.attacker_landed_hits > 1 else second_view
+	var loser_view: Card3D = second_view if act.attacker_landed_hits > 1 else first_view
+	var winner_start: Vector3 = first_start if winner_view == first_view else second_start
+	var loser_start: Vector3 = second_start if loser_view == second_view else first_start
+	var direction: Vector3 = loser_start - winner_start
+	if direction.length_squared() < 0.001:
+		direction = Vector3.FORWARD
+	else:
+		direction = direction.normalized()
+	var target: Vector3 = loser_start - direction * 0.10 + Vector3.UP * 0.10
+	var tween := create_tween()
+	tween.tween_property(winner_view, "global_position", target, combat_attack_time * 0.8)
+	await tween.finished
+	if combat_hit_pause > 0.0:
+		await get_tree().create_timer(combat_hit_pause).timeout
+	var back := create_tween()
+	back.tween_property(winner_view, "global_position", winner_start, combat_return_time * 0.8)
+	await back.finished
+
+
+func _animate_player_clash(
+	act: BattleAct
+) -> void:
+	if act == null:
+		return
+
+	if act.attacker == null:
+		return
+
+	if act.defender == null:
+		return
+
+	var first_view := card_views.get(
+		act.attacker.instance_id,
+		null
+	) as Card3D
+
+	var second_view := card_views.get(
+		act.defender.instance_id,
+		null
+	) as Card3D
+
+	if first_view == null:
+		push_error(
+			"Missing first clash view: %s"
+			% act.attacker.definition.display_name
+		)
+		return
+
+	if second_view == null:
+		push_error(
+			"Missing second clash view: %s"
+			% act.defender.definition.display_name
+		)
+		return
+
+	var first_start: Vector3 = \
+		first_view.global_position
+
+	var second_start: Vector3 = \
+		second_view.global_position
+
+	var clash_center: Vector3 = (
+		first_start + second_start
+	) * 0.5
+
+	# Cards are already lifted before the PvP phase, so the clash only needs
+	# a small extra rise instead of the old large jump.
+	clash_center.y += 0.12
+
+	var direction: Vector3 = \
+		second_start - first_start
+
+	if direction.length_squared() < 0.001:
+		direction = Vector3.FORWARD
+	else:
+		direction = direction.normalized()
+
+	var first_target: Vector3 = \
+		clash_center - direction * 0.08
+
+	var second_target: Vector3 = \
+		clash_center + direction * 0.08
+
+	var clash_tween: Tween = create_tween()
+	clash_tween.set_parallel(true)
+
+	clash_tween.tween_property(
+		first_view,
+		"global_position",
+		first_target,
+		combat_attack_time
+	).set_trans(
+		Tween.TRANS_QUAD
+	).set_ease(
+		Tween.EASE_IN
+	)
+
+	clash_tween.tween_property(
+		second_view,
+		"global_position",
+		second_target,
+		combat_attack_time
+	).set_trans(
+		Tween.TRANS_QUAD
+	).set_ease(
+		Tween.EASE_IN
+	)
+
+	await clash_tween.finished
+
+	var result_tracker: Dictionary = \
+		_start_local_result_vfx_for_act(act)
+
+	await get_tree().create_timer(
+		combat_hit_pause
+	).timeout
+
+	var return_tween: Tween = create_tween()
+	return_tween.set_parallel(true)
+
+	return_tween.tween_property(
+		first_view,
+		"global_position",
+		first_start,
+		combat_return_time
+	).set_trans(
+		Tween.TRANS_QUAD
+	).set_ease(
+		Tween.EASE_OUT
+	)
+
+	return_tween.tween_property(
+		second_view,
+		"global_position",
+		second_start,
+		combat_return_time
+	).set_trans(
+		Tween.TRANS_QUAD
+	).set_ease(
+		Tween.EASE_OUT
+	)
+
+	await return_tween.finished
+	await _animate_fury_extra_pvp_hit(
+		act,
+		first_view,
+		second_view,
+		first_start,
+		second_start
+	)
+	await _wait_for_result_vfx_tracker(result_tracker)
+
+func _start_local_result_vfx_for_act(
+	act: BattleAct
+) -> Dictionary:
+	var acts: Array[BattleAct] = []
+	acts.append(act)
+	return _start_local_result_vfx_for_acts(acts)
+
+
+func _start_local_result_vfx_for_acts(
+	acts: Array[BattleAct]
+) -> Dictionary:
+	var tracker: Dictionary = {
+		"remaining": 0
+	}
+
+	for act: BattleAct in acts:
+		var result_data: Dictionary = \
+			_get_local_result_data(act)
+
+		if result_data.is_empty():
+			continue
+
+		var card := result_data.get(
+			"card",
+			null
+		) as CardInstance
+		var outcome: int = int(
+			result_data.get(
+				"outcome",
+				BattleAct.Outcome.TIE
+			)
+		)
+
+		if card == null:
+			continue
+
+		var frames: SpriteFrames = \
+			_get_result_frames(outcome)
+
+		if frames == null:
+			continue
+
+		var card_view := card_views.get(
+			card.instance_id,
+			null
+		) as Card3D
+
+		if card_view == null:
+			continue
+
+		if not is_instance_valid(card_view):
+			continue
+
+		tracker["remaining"] = \
+			int(tracker.get("remaining", 0)) + 1
+
+		_run_local_result_vfx(
+			card_view,
+			frames,
+			tracker
+		)
+
+	return tracker
+
+
+func _play_local_result_vfx_for_act(
+	act: BattleAct
+) -> void:
+	var tracker: Dictionary = \
+		_start_local_result_vfx_for_act(act)
+
+	await _wait_for_result_vfx_tracker(tracker)
+
+
+func _run_local_result_vfx(
+	card_view: Card3D,
+	frames: SpriteFrames,
+	tracker: Dictionary
+) -> void:
+	if card_view == null or not is_instance_valid(card_view):
+		_finish_result_vfx_tracker_step(tracker)
+		return
+
+	var result_vfx := COMBAT_RESULT_VFX_SCRIPT.new() \
+		as CombatResultVFX3D
+
+	if result_vfx == null:
+		_finish_result_vfx_tracker_step(tracker)
+		return
+
+	card_view.add_child(result_vfx)
+	result_vfx.position = result_local_offset
+
+	await result_vfx.play_and_wait(
+		frames,
+		result_animation_name,
+		result_pixel_size,
+		result_loop_fallback_duration
+	)
+
+	_finish_result_vfx_tracker_step(tracker)
+
+
+func _wait_for_result_vfx_tracker(
+	tracker: Dictionary
+) -> void:
+	while int(tracker.get("remaining", 0)) > 0:
+		await combat_result_vfx_finished
+
+
+func _finish_result_vfx_tracker_step(
+	tracker: Dictionary
+) -> void:
+	tracker["remaining"] = max(
+		0,
+		int(tracker.get("remaining", 0)) - 1
+	)
+	combat_result_vfx_finished.emit()
+
+
+func _get_local_result_data(
+	act: BattleAct
+) -> Dictionary:
+	if act == null:
+		return {}
+
+	if (
+		act.attacker_owner_id == local_player_id
+		and act.attacker != null
+	):
+		return {
+			"card": act.attacker,
+			"outcome": act.attacker_outcome
+		}
+
+	if (
+		act.defender_owner_id == local_player_id
+		and act.defender != null
+	):
+		return {
+			"card": act.defender,
+			"outcome": act.defender_outcome
+		}
+
+	return {}
+
+
+func _get_result_frames(
+	outcome: int
+) -> SpriteFrames:
+	match outcome:
+		BattleAct.Outcome.WIN:
+			return win_result_frames
+
+		BattleAct.Outcome.LOSS:
+			return loss_result_frames
+
+		_:
+			return draw_result_frames
+
+
+func _get_result_vfx_duration(
+	outcome: int
+) -> float:
+	var frames: SpriteFrames = _get_result_frames(outcome)
+
+	if frames == null:
+		return 0.0
+
+	var animation_name: StringName = \
+		_resolve_result_animation_name(frames)
+
+	if animation_name == &"":
+		return 0.0
+
+	var fps: float = frames.get_animation_speed(
+		animation_name
+	)
+
+	if fps <= 0.0:
+		return result_loop_fallback_duration
+
+	var total_relative_duration: float = 0.0
+	var frame_count: int = frames.get_frame_count(
+		animation_name
+	)
+
+	for frame_index: int in range(frame_count):
+		total_relative_duration += \
+			frames.get_frame_duration(
+				animation_name,
+				frame_index
+			)
+
+	return total_relative_duration / fps
+
+
+func _resolve_result_animation_name(
+	frames: SpriteFrames
+) -> StringName:
+	if frames == null:
+		return &""
+
+	if frames.has_animation(result_animation_name):
+		return result_animation_name
+
+	if frames.has_animation(&"default"):
+		return &"default"
+
+	var names: PackedStringArray = \
+		frames.get_animation_names()
+
+	if names.is_empty():
+		return &""
+
+	return StringName(names[0])
+
+
+func _refresh_battle_scores() -> void:
+	if engine == null:
+		return
+
+	if engine.state == null:
+		return
+
+	if hud == null:
+		return
+
+	if engine.state.rush_mode_enabled:
+		hud.set_scores(
+			engine.state.player_one.get_remaining_card_count(),
+			engine.state.player_two.get_remaining_card_count()
+		)
+	else:
+		# Score now charges Energy; Hero HP is the actual match objective.
+		hud.refresh(engine.state, local_player_id)
+	_refresh_balance_scale()
+
+func _remove_discarded_card_views(
+	owner_filter: int = -1
+) -> void:
+	for instance_id: Variant in card_views.keys():
+		var card_view := card_views.get(
+			instance_id,
+			null
+		) as Card3D
+
+		if card_view == null:
+			continue
+
+		if card_view.card_instance == null:
+			continue
+
+		if (
+			owner_filter != -1
+			and card_view.card_instance.owner_id != owner_filter
+		):
+			continue
+
+		if card_view.card_instance.zone not in [
+			CardZone.Type.DISCARD,
+			CardZone.Type.REMOVED
+		]:
+			continue
+
+		card_views.erase(instance_id)
+		card_view.queue_free()
+
+
+func _refresh_pile_entities() -> void:
+	if state == null:
+		return
+	for player_id: int in [1, 2]:
+		_refresh_pile_entities_for_player(player_id)
+
+
+func _remove_pile_card_views(
+	owner_filter: int = -1
+) -> void:
+	var card_ids: Array = card_views.keys()
+
+	for raw_id: Variant in card_ids:
+		var card_view: Card3D = \
+			card_views.get(
+				raw_id,
+				null
+			) as Card3D
+
+		if card_view == null:
+			continue
+
+		var card: CardInstance = \
+			card_view.card_instance
+
+		if card == null:
+			continue
+
+		if (
+			owner_filter != -1
+			and card.owner_id != owner_filter
+		):
+			continue
+
+		var is_in_pile: bool = (
+			card.zone == CardZone.Type.DRAW
+			or card.zone == CardZone.Type.DISCARD
+			or card.zone == CardZone.Type.RESERVE
+			or card.zone == CardZone.Type.REMOVED
+		)
+
+		if not is_in_pile:
+			continue
+
+		card_views.erase(raw_id)
+		card_view.queue_free()
+
+
+func _spawn_missing_local_hand_cards() -> void:
+	var player: PlayerState = state.get_player(
+		local_player_id
+	)
+
+	if player == null:
+		return
+
+	for index: int in range(player.hand.size()):
+		var card: CardInstance = \
+			player.hand[index]
+
+		if card == null:
+			continue
+
+		if card_views.has(card.instance_id):
+			continue
+
+		var target_transform: Transform3D = \
+			game_layout.get_hand_transform(
+				local_player_id,
+				index,
+				player.hand.size()
+			)
+
+		var card_view: Card3D = \
+			_create_card_view(
+				card,
+				target_transform,
+				true
+			)
+
+		if card_view == null:
+			continue
+		card_view.set_keep_selected(
+			kept_hand_card_ids.has(
+				card.instance_id
+			)
+		)
+		card_view.drag_requested.connect(
+			Callable(
+				self,
+				"_start_card_drag"
+			)
+		)
+
+
+func _reveal_removed_card_views(
+	removed_cards: Array[CardInstance]
+) -> void:
+	if removed_cards.is_empty():
+		return
+
+	await get_tree().create_timer(
+		0.12
+	).timeout
+
+	for removed_card: CardInstance in removed_cards:
+		if removed_card == null:
+			continue
+
+		var card_view: Card3D = \
+			card_views.get(
+				removed_card.instance_id,
+				null
+			) as Card3D
+
+		if card_view == null:
+			continue
+
+		card_views.erase(
+			removed_card.instance_id
+		)
+
+		var tween: Tween = create_tween()
+
+		tween.tween_property(
+			card_view,
+			"scale",
+			Vector3.ZERO,
+			reveal_step_time * 0.35
+		)
+
+		tween.tween_callback(
+			Callable(
+				card_view,
+				"queue_free"
+			)
+		)
+
+	await get_tree().create_timer(
+		reveal_step_time * 0.35
+	).timeout
+func _finish_game() -> void:
+	interaction_locked = true
+	if (
+		online_mode
+		and online_session != null
+		and state != null
+		and not online_game_over_committed
+	):
+		online_session.report_match_end(state.winner_id)
+
+	hud.set_interaction_enabled(false)
+
+	hud.refresh(
+		state,
+		local_player_id
+	)
+
+	pending_local_cards.clear()
+	pending_bot_plays.clear()
+
+	var is_draw: bool = state.winner_id == 0
+	var local_won: bool = (
+		state.winner_id
+		== local_player_id
+	)
+
+	var local_score: int
+
+	var opponent_score: int
+
+	if state.rush_mode_enabled:
+		if local_player_id == 1:
+			local_score = state.player_one.get_remaining_card_count()
+			opponent_score = state.player_two.get_remaining_card_count()
+		else:
+			local_score = state.player_two.get_remaining_card_count()
+			opponent_score = state.player_one.get_remaining_card_count()
+	else:
+		var local_player: PlayerState = state.get_player(local_player_id)
+		var opponent_id: int = 2 if local_player_id == 1 else 1
+		var opponent_player: PlayerState = state.get_player(opponent_id)
+		local_score = (
+			local_player.hero.hero_health
+			if local_player != null and local_player.hero != null
+			else 0
+		)
+		opponent_score = (
+			opponent_player.hero.hero_health
+			if opponent_player != null and opponent_player.hero != null
+			else 0
+		)
+
+	var score_difference: int = abs(
+		local_score
+		- opponent_score
+	)
+
+	hud.show_game_over(
+		local_won,
+		local_score,
+		opponent_score,
+		score_difference,
+		is_draw,
+		state.rush_mode_enabled,
+		not state.rush_mode_enabled
+	)
+
+	if is_draw:
+		print(
+			"RUSH DRAW | both players have no cards"
+			if state.rush_mode_enabled
+			else "DRAW | both Heroes were defeated"
+		)
+	elif local_won:
+		print(
+			"YOU WIN | difference=",
+			score_difference
+		)
+	else:
+		print(
+			"YOU LOSE | difference=",
+			score_difference
+		)
+func _refresh_balance_scale() -> void:
+	if balance_scale == null:
+		return
+	# Victory is Hero-health based in normal mode and card-elimination based in
+	# Rush, so score balance is no longer a gameplay objective in either mode.
+	balance_scale.visible = false
+
+
+func _refresh_board_shield_visuals(
+	animate_change: bool = true
+) -> void:
+	for card_instance_id: int in card_views:
+		var card_view: Card3D = card_views[
+			card_instance_id
+		]
+
+		if card_view == null:
+			continue
+
+		var card: CardInstance = (
+			_find_board_card_by_instance_id(
+				card_instance_id
+			)
+		)
+
+		if card == null:
+			card_view.set_shield_count(
+				0,
+				false
+			)
+			continue
+
+		card_view.refresh_front_visual()
+		card_view.set_shield_count(
+			card.shield_count,
+			animate_change
+		)
+		card_view.refresh_card_status(
+			state.turn_number,
+			animate_change
+		)
+		card_view.refresh_hero_status(state.turn_number)
+
+
+func _find_board_card_by_instance_id(
+	instance_id: int
+) -> CardInstance:
+	if state == null:
+		return null
+
+	for player_id: int in [1, 2]:
+		var player: PlayerState = state.get_player(
+			player_id
+		)
+
+		if player == null:
+			continue
+
+		for slot_id: int in SlotID.all_slots():
+			var card: CardInstance = \
+				player.board.get_card(
+					slot_id
+				)
+
+			if card == null:
+				continue
+
+			if card.instance_id == instance_id:
+				return card
+
+	return null
+
+func _play_card_placed_vfx(
+	card_view: Card3D
+) -> float:
+	if card_view == null:
+		return 0.0
+
+	if card_view.card_instance == null:
+		return 0.0
+
+	if card_view.card_instance.definition == null:
+		return 0.0
+
+	if vfx_manager == null:
+		return 0.0
+
+	return vfx_manager.play_vfx(
+		card_view.card_instance.definition.placed_vfx,
+		card_view
+	)
+
+
+func _play_card_placement_disable_sequence(
+	card_view: Card3D,
+	placed_vfx_duration: float = 0.0
+) -> void:
+	if card_view == null:
+		return
+
+	if card_view.card_instance == null:
+		return
+
+	if card_view.card_instance.definition == null:
+		return
+
+	var disabler_behavior := (
+		card_view.card_instance.definition.behavior
+		as DisableGestureBehavior
+	)
+
+	if disabler_behavior == null:
+		return
+
+	if placed_vfx_duration > 0.0:
+		await get_tree().create_timer(
+			placed_vfx_duration
+		).timeout
+
+	var hit_duration: float = _refresh_board_disabled_visuals(
+		true
+	)
+
+	if hit_duration > 0.0:
+		await get_tree().create_timer(
+			hit_duration
+		).timeout
+
+func _play_collector_vfx_before_combat() -> void:
+	if state == null:
+		return
+
+	var claimed_target_ids: Dictionary = {}
+
+	for collector_owner_id: int in [1, 2]:
+		var collector_owner: PlayerState = \
+			state.get_player(collector_owner_id)
+
+		if collector_owner == null:
+			continue
+
+		for collector_slot_id: int in SlotID.all_slots():
+			var collector_card: CardInstance = \
+				collector_owner.board.get_card(
+					collector_slot_id
+				)
+
+			if collector_card == null:
+				continue
+
+			if collector_card.definition == null:
+				continue
+
+			var collector_behavior := (
+				collector_card.definition.behavior
+				as CollectorBehavior
+			)
+
+			if collector_behavior == null:
+				continue
+
+			# Collector فقط یک بار استفاده می‌شود.
+			if collector_card.ability_used:
+				continue
+
+			var collector_view := card_views.get(
+				collector_card.instance_id,
+				null
+			) as Card3D
+
+			if collector_view == null:
+				continue
+
+			var target_views: Array[Card3D] = []
+
+			# Collector فقط Board صاحب خودش را بررسی می‌کند.
+			for target_owner_id: int in [1, 2]:
+				if target_owner_id != collector_owner_id:
+					continue
+
+				var target_owner: PlayerState = \
+					state.get_player(target_owner_id)
+
+				if target_owner == null:
+					continue
+
+				for target_slot_id: int in SlotID.all_slots():
+					var target_card: CardInstance = \
+						target_owner.board.get_card(
+							target_slot_id
+						)
+
+					if target_card == null:
+						continue
+
+					if target_card.definition == null:
+						continue
+
+					# Hero نه از نظر منطق و نه از نظر VFX توسط Collector کشیده نمی‌شود.
+					if target_card.is_hero():
+						continue
+
+					# خود Collector جمع نمی‌شود.
+					if target_card == collector_card:
+						continue
+
+					# کارت‌های همین Turn جمع نمی‌شوند.
+					if (
+						target_card.turn_played
+						>= state.turn_number
+					):
+						continue
+
+					# فقط Gesture مربوط به همین Collector.
+					if (
+						target_card.get_gesture()
+						!= collector_behavior.collected_gesture
+					):
+						continue
+
+					# یک کارت توسط دو Collector انتخاب نشود.
+					if claimed_target_ids.has(
+						target_card.instance_id
+					):
+						continue
+
+					var target_view := card_views.get(
+						target_card.instance_id,
+						null
+					) as Card3D
+
+					if target_view == null:
+						continue
+
+					claimed_target_ids[
+						target_card.instance_id
+					] = true
+
+					target_views.append(target_view)
+
+			print(
+				"COLLECTOR START | card=",
+				collector_card.definition.display_name,
+				" | targets=",
+				target_views.size()
+			)
+
+			# Collector VFX is instantiated only while this ability is running.
+			var effect_duration: float = 0.0
+
+			if vfx_manager != null:
+				effect_duration = vfx_manager.play_vfx(
+					collector_card.definition.ability_vfx,
+					collector_view
+				)
+
+			# A short delay lets the effect establish before cards move.
+			var pull_delay: float = collector_pull_delay
+			var pull_duration: float = 0.55
+			var elapsed_time: float = 0.0
+
+			if not target_views.is_empty():
+				if pull_delay > 0.0:
+					await get_tree().create_timer(
+						pull_delay
+					).timeout
+
+					elapsed_time += pull_delay
+
+				var pull_tween: Tween = create_tween()
+
+				pull_tween.set_parallel(true)
+
+				pull_tween.set_trans(
+					Tween.TRANS_QUAD
+				)
+
+				pull_tween.set_ease(
+					Tween.EASE_IN
+				)
+
+				for target_view: Card3D in target_views:
+					if target_view == null:
+						continue
+
+
+					# همه کارت‌ها هم‌زمان به Collector می‌روند.
+					pull_tween.tween_property(
+						target_view,
+						"global_position",
+						collector_view.global_position,
+						pull_duration
+					)
+
+					# همه کارت‌ها هم‌زمان کوچک می‌شوند.
+					pull_tween.tween_property(
+						target_view,
+						"scale",
+						Vector3.ZERO,
+						pull_duration
+					)
+
+				await pull_tween.finished
+
+				elapsed_time += pull_duration
+
+				# حذف واقعی بعداً توسط begin_combat انجام می‌شود.
+				for target_view: Card3D in target_views:
+					if is_instance_valid(target_view):
+						target_view.visible = false
+
+			# اگر انیمیشن Collector هنوز تمام نشده، صبر می‌کنیم.
+			var remaining_effect_time: float = (
+				effect_duration
+				- elapsed_time
+			)
+
+			if remaining_effect_time > 0.0:
+				await get_tree().create_timer(
+					remaining_effect_time
+				).timeout
