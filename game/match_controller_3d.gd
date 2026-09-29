@@ -850,6 +850,8 @@ func _build_online_state_digest() -> String:
 
 
 func _report_online_client_fault(reason: String) -> void:
+	# Only call this for unrecoverable protocol/state errors.
+	# Authoritative Hero type differences are reconciled before reaching here.
 	online_desync_locked = true
 	interaction_locked = true
 	if hud != null:
@@ -1655,7 +1657,11 @@ func _finish_rush_sacrifice_interaction() -> void:
 
 func _ensure_vfx_manager() -> void:
 	if is_instance_valid(vfx_manager):
-		return
+		if vfx_manager.is_inside_tree():
+			return
+		# A queued/removed manager can still be instance-valid for a short time.
+		# Never keep it as the active runtime VFX manager.
+		vfx_manager = null
 
 	var scene_root := get_parent() as Node3D
 
@@ -1710,6 +1716,38 @@ func _ensure_vfx_manager() -> void:
 	vfx_manager.board_anchor = board_anchor
 
 	print("Runtime VFX manager created.")
+
+
+
+func _vfx_manager_is_ready() -> bool:
+	if (
+		is_instance_valid(vfx_manager)
+		and vfx_manager.is_inside_tree()
+	):
+		return true
+
+	if is_instance_valid(vfx_manager):
+		vfx_manager = null
+
+	# During active gameplay the controller and its parent are already in-tree,
+	# so recreating a missing manager here is safe.
+	if is_inside_tree():
+		_ensure_vfx_manager()
+
+	return (
+		is_instance_valid(vfx_manager)
+		and vfx_manager.is_inside_tree()
+	)
+
+
+func _safe_vfx_card_view(view: Card3D) -> Card3D:
+	if (
+		view != null
+		and is_instance_valid(view)
+		and view.is_inside_tree()
+	):
+		return view
+	return null
 
 
 func _remove_legacy_resident_vfx() -> void:
@@ -3060,6 +3098,71 @@ func _build_online_hero_type_change(
 	}
 
 
+func _apply_authoritative_online_hero_type(
+	player_id: int,
+	expected_type: int,
+	refresh_visual: bool = false
+) -> bool:
+	if expected_type not in [0, 1, 2]:
+		return false
+
+	var player: PlayerState = (
+		state.get_player(player_id)
+		if state != null
+		else null
+	)
+	if player == null or player.hero == null:
+		return false
+
+	var hero: CardInstance = player.hero
+	var before_type: int = int(hero.get_gesture())
+
+	if before_type != expected_type:
+		# CardInstance has set_gesture_override() in current builds.
+		# Keep a property fallback so older compatible builds can still recover.
+		if hero.has_method("set_gesture_override"):
+			hero.call(
+				"set_gesture_override",
+				expected_type
+			)
+		else:
+			var found_override_property: bool = false
+			for property_info: Dictionary in hero.get_property_list():
+				if StringName(property_info.get("name", "")) == &"gesture_override":
+					hero.set("gesture_override", expected_type)
+					found_override_property = true
+					break
+			if not found_override_property:
+				return false
+
+		var after_type: int = int(hero.get_gesture())
+		if after_type != expected_type:
+			return false
+
+		print(
+			"ONLINE HERO TYPE RECONCILE | player=%d | %d -> %d | turn=%d"
+			% [
+				player_id,
+				before_type,
+				expected_type,
+				state.turn_number
+			]
+		)
+
+	if refresh_visual:
+		var hero_view := card_views.get(
+			hero.instance_id,
+			null
+		) as Card3D
+		if hero_view != null and is_instance_valid(hero_view):
+			if hero_view.has_method("refresh_front_visual"):
+				hero_view.call("refresh_front_visual")
+			if hero_view.has_method("refresh_gesture_override_label"):
+				hero_view.call("refresh_gesture_override_label")
+
+	return int(hero.get_gesture()) == expected_type
+
+
 func _verify_online_hero_type_change(
 	player_id: int,
 	action: Dictionary,
@@ -3070,22 +3173,30 @@ func _verify_online_hero_type_change(
 		return true
 	if not (raw_change is Dictionary):
 		return false
+
 	var change: Dictionary = raw_change as Dictionary
-	var player: PlayerState = state.get_player(player_id) if state != null else null
+	var player: PlayerState = (
+		state.get_player(player_id)
+		if state != null
+		else null
+	)
 	if player == null or player.hero == null:
 		return false
+
 	var hero: CardInstance = player.hero
 	if int(change.get("hero_id", -1)) != int(hero.instance_id):
 		return false
-	var expected_type := int(change.get("new_type", -1))
-	if int(hero.get_gesture()) != expected_type:
-		return false
-	if refresh_visual:
-		var hero_view := card_views.get(hero.instance_id, null) as Card3D
-		if hero_view != null and is_instance_valid(hero_view):
-			if hero_view.has_method("refresh_gesture_override_label"):
-				hero_view.call("refresh_gesture_override_label")
-	return true
+
+	var expected_type: int = int(change.get("new_type", -1))
+
+	# The server has already validated old_type -> new_type. If the local
+	# MatchEngine did not carry the override across a hidden Hero cover/move,
+	# repair the hidden state here instead of permanently freezing both clients.
+	return _apply_authoritative_online_hero_type(
+		player_id,
+		expected_type,
+		refresh_visual
+	)
 
 
 func _verify_online_server_hero_types(raw_types: Variant) -> bool:
@@ -3093,22 +3204,46 @@ func _verify_online_server_hero_types(raw_types: Variant) -> bool:
 		return true
 	if not (raw_types is Dictionary):
 		return false
+
 	var hero_types: Dictionary = raw_types as Dictionary
+
 	for player_id: int in [1, 2]:
 		var key := str(player_id)
 		if not hero_types.has(key):
 			continue
-		var player: PlayerState = state.get_player(player_id) if state != null else null
-		if player == null or player.hero == null:
-			return false
-		var expected_type := int(hero_types.get(key, -1))
-		var actual_type := int(player.hero.get_gesture())
-		if expected_type != actual_type:
+
+		var expected_type: int = int(
+			hero_types.get(key, -1)
+		)
+
+		# Server hero_types is authoritative. Reconcile the hidden CardInstance
+		# state, but do NOT refresh the opponent visual here. Reveal/turn-start
+		# already refresh public Hero visuals at the correct time.
+		if not _apply_authoritative_online_hero_type(
+			player_id,
+			expected_type,
+			false
+		):
+			var actual_type: int = -1
+			var player: PlayerState = (
+				state.get_player(player_id)
+				if state != null
+				else null
+			)
+			if player != null and player.hero != null:
+				actual_type = int(player.hero.get_gesture())
+
 			push_error(
-				"ONLINE HERO TYPE MISMATCH | player=%d | server=%d | client=%d | turn=%d"
-				% [player_id, expected_type, actual_type, state.turn_number]
+				"ONLINE HERO TYPE UNRECOVERABLE | player=%d | server=%d | client=%d | turn=%d"
+				% [
+					player_id,
+					expected_type,
+					actual_type,
+					state.turn_number if state != null else -1
+				]
 			)
 			return false
+
 	return true
 
 
@@ -5927,7 +6062,7 @@ func _refresh_board_disabled_visuals(
 				and became_disabled
 				and source_card != null
 				and source_card.definition != null
-				and vfx_manager != null
+				and _vfx_manager_is_ready()
 			):
 				var source_view := card_views.get(
 					source_card.instance_id,
@@ -5936,8 +6071,8 @@ func _refresh_board_disabled_visuals(
 
 				var hit_duration: float = vfx_manager.play_vfx(
 					source_card.definition.target_vfx,
-					source_view,
-					card_view
+					_safe_vfx_card_view(source_view),
+					_safe_vfx_card_view(card_view)
 				)
 
 				longest_hit_duration = maxf(
@@ -7426,12 +7561,18 @@ func _play_mustache_card_sequence(
 				rock_view.global_position
 			)
 
-	var center_position: Vector3 = (
-		vfx_manager.get_spawn_transform(
-			vfx_definition,
-			mustache_view
-		).origin
-	)
+	var center_position: Vector3 = Vector3.ZERO
+	var safe_mustache_view: Card3D = _safe_vfx_card_view(mustache_view)
+	if safe_mustache_view != null:
+		center_position = safe_mustache_view.global_position
+
+	if _vfx_manager_is_ready():
+		center_position = (
+			vfx_manager.get_spawn_transform(
+				vfx_definition,
+				safe_mustache_view
+			).origin
+		)
 
 	if not affected_views.is_empty():
 		var gather_tween: Tween = create_tween()
@@ -7533,12 +7674,12 @@ func _play_card_ability_vfx(
 	if card.definition == null:
 		return 0.0
 
-	if vfx_manager == null:
+	if not _vfx_manager_is_ready():
 		return 0.0
 
 	return vfx_manager.play_vfx(
 		card.definition.ability_vfx,
-		source_view
+		_safe_vfx_card_view(source_view)
 	)
 
 func _animate_player_vs_dealer(
@@ -8400,12 +8541,16 @@ func _play_card_placed_vfx(
 	if card_view.card_instance.definition == null:
 		return 0.0
 
-	if vfx_manager == null:
+	var safe_card_view: Card3D = _safe_vfx_card_view(card_view)
+	if safe_card_view == null:
+		return 0.0
+
+	if not _vfx_manager_is_ready():
 		return 0.0
 
 	return vfx_manager.play_vfx(
-		card_view.card_instance.definition.placed_vfx,
-		card_view
+		safe_card_view.card_instance.definition.placed_vfx,
+		safe_card_view
 	)
 
 
@@ -8566,10 +8711,10 @@ func _play_collector_vfx_before_combat() -> void:
 			# Collector VFX is instantiated only while this ability is running.
 			var effect_duration: float = 0.0
 
-			if vfx_manager != null:
+			if _vfx_manager_is_ready():
 				effect_duration = vfx_manager.play_vfx(
 					collector_card.definition.ability_vfx,
-					collector_view
+					_safe_vfx_card_view(collector_view)
 				)
 
 			# A short delay lets the effect establish before cards move.
