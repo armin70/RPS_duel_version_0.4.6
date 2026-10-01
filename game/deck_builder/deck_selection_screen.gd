@@ -32,6 +32,20 @@ var plus_buttons: Dictionary = {}
 var minus_buttons: Dictionary = {}
 var category_labels: Array[Label] = []
 
+# Drag-to-deck support. Existing +/- button behavior remains unchanged.
+const DECK_DRAG_THRESHOLD := 18.0
+const DECK_DRAG_HORIZONTAL_BIAS := 1.10
+
+var deck_drop_area: Control
+var deck_drag_card: CardDefinition
+var deck_drag_source: TextureButton
+var deck_drag_pointer_index := -1
+var deck_drag_start := Vector2.ZERO
+var deck_drag_active := false
+var deck_drag_cancelled := false
+var deck_drag_is_touch := false
+var deck_drag_preview: Control
+
 func configure(value: DeckBuilderSettings, decks: Array[DeckDefinition], previews: Array[CardDefinition]) -> void:
  settings = value
  preset_decks.assign(decks)
@@ -57,6 +71,33 @@ func _ready() -> void:
 func _resize() -> void:
  MenuArt.fit(root_control)
 
+func _input(event: InputEvent) -> void:
+ if read_only or deck_drag_card == null:
+  return
+
+ if event is InputEventMouseMotion and not deck_drag_is_touch:
+  var motion := event as InputEventMouseMotion
+  if (motion.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
+   _update_deck_drag(motion.position)
+  return
+
+ if event is InputEventMouseButton and not deck_drag_is_touch:
+  var mouse := event as InputEventMouseButton
+  if mouse.button_index == MOUSE_BUTTON_LEFT and not mouse.pressed:
+   _finish_deck_drag(mouse.position)
+  return
+
+ if event is InputEventScreenDrag and deck_drag_is_touch:
+  var drag := event as InputEventScreenDrag
+  if drag.index == deck_drag_pointer_index:
+   _update_deck_drag(drag.position)
+  return
+
+ if event is InputEventScreenTouch and deck_drag_is_touch:
+  var touch := event as InputEventScreenTouch
+  if touch.index == deck_drag_pointer_index and not touch.pressed:
+   _finish_deck_drag(touch.position)
+
 func _unhandled_key_input(event: InputEvent) -> void:
  if event.is_action_pressed("ui_cancel"):
   get_viewport().set_input_as_handled()
@@ -68,6 +109,7 @@ func _close() -> void:
  queue_free()
 
 func show_gallery() -> void:
+ _cancel_deck_drag()
  editing = false
  page = "gallery"
  MenuArt.clear(root_control)
@@ -139,6 +181,7 @@ func _choose_custom(index: int) -> void:
  else: deck_selected.emit(deck)
 
 func open_editor(index: int = -1) -> void:
+ _cancel_deck_drag()
  active_index = index
  selected_counts = library.saved[index].counts.duplicate() if index >= 0 else {}
  editing = true
@@ -188,6 +231,7 @@ func open_editor(index: int = -1) -> void:
  var list_scroll := ScrollContainer.new()
  list_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
  MenuArt.place(list_scroll,root_control,Rect2(2012,242,373,658))
+ deck_drop_area = list_scroll
  deck_list = VBoxContainer.new()
  deck_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
  deck_list.add_theme_constant_override("separation",5)
@@ -254,17 +298,171 @@ func _rebuild_cards() -> void:
   minus_buttons[card.resource_path] = m
   if card.mana_cost >= 1 and card.mana_cost <= 10:
    var suffix := "" if card.mana_cost == 1 else "-"+str(card.mana_cost-1)
-   MenuArt.image(tile,"mana num for DB/mana-badge"+suffix+".png",Rect2(176,0,104,54))
+   # Keep the source mana badge aspect ratio (117x95).
+   # 67x54 prevents the icon/number artwork from looking horizontally stretched.
+   MenuArt.image(tile,"mana num for DB/mana-badge"+suffix+".png",Rect2(176,0,67,54))
   else: MenuArt.label(tile,MenuArt.digits(card.mana_cost),Rect2(180,0,100,54),32,Color("68dacc"))
   var b := TextureButton.new()
   b.texture_normal = card.front_texture
   b.ignore_texture_size = true
   b.stretch_mode = TextureButton.STRETCH_KEEP_ASPECT_CENTERED
   MenuArt.place(b,tile,Rect2(0,60,280,375))
-  b.tooltip_text = _card_name(card) + " — جزئیات کارت"
+  b.tooltip_text = _card_name(card) + " — کلیک: جزئیات، کشیدن به راست: افزودن به دسته"
   b.pressed.connect(_details.bind(card))
+  b.gui_input.connect(_on_deck_card_drag_input.bind(card,b))
   b.mouse_entered.connect(func(): b.modulate = Color(1.12,1.12,1.12))
   b.mouse_exited.connect(func(): b.modulate = Color.WHITE)
+
+func _on_deck_card_drag_input(event: InputEvent, card: CardDefinition, source: TextureButton) -> void:
+ if read_only or card == null or source == null:
+  return
+
+ if event is InputEventMouseButton:
+  var mouse := event as InputEventMouseButton
+  if mouse.button_index == MOUSE_BUTTON_LEFT and mouse.pressed:
+   _begin_deck_drag(card,source,-1,mouse.position,false)
+  return
+
+ if event is InputEventScreenTouch:
+  var touch := event as InputEventScreenTouch
+  if touch.pressed:
+   _begin_deck_drag(card,source,touch.index,touch.position,true)
+
+
+func _begin_deck_drag(card: CardDefinition, source: TextureButton, pointer_index: int, position: Vector2, is_touch: bool) -> void:
+ _cancel_deck_drag()
+ deck_drag_card = card
+ deck_drag_source = source
+ deck_drag_pointer_index = pointer_index
+ deck_drag_start = position
+ deck_drag_active = false
+ deck_drag_cancelled = false
+ deck_drag_is_touch = is_touch
+
+
+func _update_deck_drag(position: Vector2) -> void:
+ if deck_drag_card == null or deck_drag_cancelled:
+  return
+
+ var movement := position - deck_drag_start
+
+ if not deck_drag_active:
+  if movement.length() < DECK_DRAG_THRESHOLD:
+   return
+
+  # On touch, vertical movement still belongs to the existing card-list scroll.
+  if deck_drag_is_touch and absf(movement.y) > absf(movement.x) * DECK_DRAG_HORIZONTAL_BIAS:
+   deck_drag_cancelled = true
+   return
+
+  # The selected-deck panel is to the right, Hearthstone-style.
+  if movement.x <= 0.0:
+   deck_drag_cancelled = true
+   return
+
+  _start_deck_drag_preview()
+
+ if deck_drag_active:
+  _position_deck_drag_preview(position)
+  _set_deck_drag_hover(_point_is_over_deck(position))
+
+
+func _start_deck_drag_preview() -> void:
+ if deck_drag_active or deck_drag_card == null:
+  return
+
+ deck_drag_active = true
+
+ var preview := PanelContainer.new()
+ preview.name = "DeckDragPreview"
+ preview.custom_minimum_size = Vector2(165,225)
+ preview.size = Vector2(165,225)
+ preview.mouse_filter = Control.MOUSE_FILTER_IGNORE
+ preview.z_index = 1000
+ preview.modulate = Color(1,1,1,0.94)
+ preview.add_theme_stylebox_override(
+  "panel",
+  MenuArt.style(
+   Color(0.05,0.05,0.08,0.96),
+   Color(0.85,0.72,0.36,0.95),
+   10
+  )
+ )
+
+ var image := TextureRect.new()
+ image.texture = deck_drag_card.front_texture
+ image.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+ image.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+ image.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+ image.mouse_filter = Control.MOUSE_FILTER_IGNORE
+ preview.add_child(image)
+
+ root_control.add_child(preview)
+ preview.move_to_front()
+ deck_drag_preview = preview
+
+
+func _position_deck_drag_preview(position: Vector2) -> void:
+ if not is_instance_valid(deck_drag_preview):
+  return
+
+ deck_drag_preview.global_position = (
+  position
+  - deck_drag_preview.size * 0.5
+  + Vector2(0,-28)
+ )
+
+
+func _point_is_over_deck(position: Vector2) -> bool:
+ if not is_instance_valid(deck_drop_area):
+  return false
+
+ return deck_drop_area.get_global_rect().has_point(position)
+
+
+func _set_deck_drag_hover(hovered: bool) -> void:
+ if not is_instance_valid(deck_drop_area):
+  return
+
+ deck_drop_area.modulate = (
+  Color(1.10,1.08,0.94,1.0)
+  if hovered
+  else Color.WHITE
+ )
+
+
+func _finish_deck_drag(position: Vector2) -> void:
+ if deck_drag_card == null:
+  return
+
+ var card := deck_drag_card
+ var should_add := (
+  deck_drag_active
+  and not deck_drag_cancelled
+  and _point_is_over_deck(position)
+ )
+
+ _cancel_deck_drag()
+
+ if should_add and card != null:
+  # Reuse the exact same validation/count logic as the existing + button.
+  _change(card,1)
+
+
+func _cancel_deck_drag() -> void:
+ _set_deck_drag_hover(false)
+
+ if is_instance_valid(deck_drag_preview):
+  deck_drag_preview.queue_free()
+
+ deck_drag_preview = null
+ deck_drag_card = null
+ deck_drag_source = null
+ deck_drag_pointer_index = -1
+ deck_drag_active = false
+ deck_drag_cancelled = false
+ deck_drag_is_touch = false
+
 
 func _change(card: CardDefinition, delta: int) -> void:
  if read_only: return
