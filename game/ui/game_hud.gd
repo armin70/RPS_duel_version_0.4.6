@@ -639,15 +639,13 @@ func _cancel_return_to_menu() -> void:
 func _confirm_return_to_menu() -> void:
 	get_tree().paused = false
 
-	# The active project uses the binary main_game.scn, which contains the
-	# transparent main menu. Reloading arbitrary current PackedScene state was
-	# unreliable after the menu had queue_free()'d itself, so return explicitly.
-	var menu_scene_path: String = "res://game/main_game.scn"
+	# Return to the scene containing the new menu, including after a match.
+	var menu_scene_path: String = "res://game/main_game.tscn"
 	var scene_error: Error = get_tree().change_scene_to_file(menu_scene_path)
 
 	if scene_error != OK:
 		push_warning(
-			"Could not open main_game.scn; falling back to current scene reload."
+			"Could not open main_game.tscn; falling back to current scene reload."
 		)
 		var reload_error: Error = get_tree().reload_current_scene()
 		if reload_error != OK:

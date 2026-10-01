@@ -266,9 +266,8 @@ var online_remote_action_running: bool = false
 var online_setup_stage: String = ""
 var online_setup_transition_running: bool = false
 
-# Normal Online public actions are applied only after the server echoes them
-# back in one shared sequence. This prevents the two clients from observing
-# Hero Active / Special Attack in different orders.
+# In online planning, ONLY Special Attack is public/immediate.
+# Plays, moves/switches, Hero Active and Rush transforms stay hidden until Reveal.
 var online_public_action_pending: String = ""
 var online_hidden_action_pending: bool = false
 var online_hidden_action_sequence: int = 0
@@ -283,6 +282,7 @@ var online_transport_is_interrupted: bool = false
 var online_opponent_is_disconnected: bool = false
 var online_desync_locked: bool = false
 var online_game_over_committed: bool = false
+var online_immediate_game_over_reported: bool = false
 var online_server_event_queue: Array[Dictionary] = []
 var online_server_event_worker_running: bool = false
 var online_remote_record_turn: int = -1
@@ -708,6 +708,8 @@ func _online_actions_match(expected: Dictionary, actual: Dictionary) -> bool:
 		"slot",
 		"from_slot",
 		"to_slot",
+		"target_id",
+		"gesture",
 		"_client_action_index",
 		"_rng_seed"
 	]:
@@ -896,7 +898,25 @@ func _on_hero_active_power_requested() -> void:
 	if online_mode:
 		if not engine.can_activate_hero_active(local_player_id):
 			return
-		_begin_online_public_action_request({"kind": "hero_active"})
+
+		var hidden_action := _prepare_online_predicted_hidden_action({
+			"kind": "hero_active"
+		})
+		seed(maxi(1, int(hidden_action.get("_rng_seed", 1))))
+
+		if not _apply_online_hero_active_authoritatively(local_player_id):
+			return
+
+		_request_online_hidden_action(hidden_action)
+
+		# The owner may see their own choice immediately. Nothing is sent to the
+		# opponent presentation until Reveal.
+		_play_hero_active_ground_feedback(local_player_id)
+		_refresh_board_shield_visuals(
+			true,
+			local_player_id
+		)
+		_refresh_hud_without_hidden_opponent_leak()
 		return
 
 	if engine.activate_hero_active(local_player_id):
@@ -1580,43 +1600,24 @@ func _get_card_view_under_screen_position(
 	return result.get("collider", null) as Card3D
 
 
-func _on_rush_sacrifice_gesture_chosen(gesture: int) -> void:
-	var target_card: CardInstance = rush_sacrifice_target
-	if target_card == null or engine == null:
-		_finish_rush_sacrifice_interaction()
+func _present_local_rush_transform(
+	target_card: CardInstance,
+	removed_card: CardInstance
+) -> void:
+	if target_card == null or removed_card == null:
 		return
 
-	var selected_gesture: CardGesture.Type = gesture
-
-	if online_mode:
-		# No local mutation here. The server supplies the RNG seed and echoes the
-		# exact transform event to BOTH clients, including this sender.
-		_begin_online_public_action_request({
-			"kind": "rush_transform",
-			"target_id": target_card.instance_id,
-			"gesture": int(selected_gesture)
-		})
-		return
-
-	var removed_card: CardInstance = engine.apply_rush_transform(
-		local_player_id,
-		target_card,
-		selected_gesture
-	)
-
-	if removed_card == null:
-		if is_instance_valid(rush_sacrifice_control):
-			rush_sacrifice_control.show_message(
-				"Sacrifice could not be completed. No card was removed."
-			)
-		_finish_rush_sacrifice_interaction()
-		return
-
-	var target_view := card_views.get(target_card.instance_id, null) as Card3D
-	if target_view != null:
+	var target_view := card_views.get(
+		target_card.instance_id,
+		null
+	) as Card3D
+	if target_view != null and is_instance_valid(target_view):
 		target_view.refresh_gesture_override_label()
 
-	var removed_view := card_views.get(removed_card.instance_id, null) as Card3D
+	var removed_view := card_views.get(
+		removed_card.instance_id,
+		null
+	) as Card3D
 	if removed_view != null and is_instance_valid(removed_view):
 		var remove_duration: float = removed_view.play_rush_penalty_remove(
 			rush_penalty_raise_height,
@@ -1630,14 +1631,77 @@ func _on_rush_sacrifice_gesture_chosen(gesture: int) -> void:
 
 	_sync_visual_slots_for_player(local_player_id)
 	await _refresh_board_card_positions(local_player_id, true)
-	_refresh_board_shield_visuals(false)
+	_refresh_board_shield_visuals(
+		false,
+		local_player_id
+	)
 	if hud != null:
-		hud.refresh(state, local_player_id)
+		_refresh_hud_without_hidden_opponent_leak()
+
 	if is_instance_valid(rush_sacrifice_control):
 		rush_sacrifice_control.show_message(
 			"Type changed to %s. One other board card was permanently sacrificed."
 			% CardGesture.Type.keys()[target_card.get_gesture()]
 		)
+
+
+func _on_rush_sacrifice_gesture_chosen(gesture: int) -> void:
+	var target_card: CardInstance = rush_sacrifice_target
+	if target_card == null or engine == null:
+		_finish_rush_sacrifice_interaction()
+		return
+
+	var selected_gesture: CardGesture.Type = gesture
+	var removed_card: CardInstance = null
+
+	if online_mode:
+		var hidden_action := _prepare_online_predicted_hidden_action({
+			"kind": "rush_transform",
+			"target_id": target_card.instance_id,
+			"gesture": int(selected_gesture)
+		})
+		seed(maxi(1, int(hidden_action.get("_rng_seed", 1))))
+
+		removed_card = engine.apply_rush_transform(
+			local_player_id,
+			target_card,
+			selected_gesture
+		)
+
+		if removed_card == null:
+			if is_instance_valid(rush_sacrifice_control):
+				rush_sacrifice_control.show_message(
+					"Sacrifice could not be completed. No card was removed."
+				)
+			_finish_rush_sacrifice_interaction()
+			return
+
+		_request_online_hidden_action(hidden_action)
+		await _present_local_rush_transform(
+			target_card,
+			removed_card
+		)
+		_finish_rush_sacrifice_interaction()
+		return
+
+	removed_card = engine.apply_rush_transform(
+		local_player_id,
+		target_card,
+		selected_gesture
+	)
+
+	if removed_card == null:
+		if is_instance_valid(rush_sacrifice_control):
+			rush_sacrifice_control.show_message(
+				"Sacrifice could not be completed. No card was removed."
+			)
+		_finish_rush_sacrifice_interaction()
+		return
+
+	await _present_local_rush_transform(
+		target_card,
+		removed_card
+	)
 	_finish_rush_sacrifice_interaction()
 
 
@@ -1678,7 +1742,7 @@ func _ensure_vfx_manager() -> void:
 	if runtime_root == null:
 		runtime_root = Node3D.new()
 		runtime_root.name = "RuntimeVFX"
-		scene_root.add_child(runtime_root)
+		scene_root.add_child.call_deferred(runtime_root)
 
 	var anchors := scene_root.get_node_or_null(
 		"VFXAnchors"
@@ -1687,7 +1751,7 @@ func _ensure_vfx_manager() -> void:
 	if anchors == null:
 		anchors = Node3D.new()
 		anchors.name = "VFXAnchors"
-		scene_root.add_child(anchors)
+		scene_root.add_child.call_deferred(anchors)
 
 	var dealer_anchor := anchors.get_node_or_null(
 		"DealerVFXAnchor"
@@ -1709,7 +1773,7 @@ func _ensure_vfx_manager() -> void:
 
 	vfx_manager = CardVFXManager3D.new()
 	vfx_manager.name = "CardVFXManager3D"
-	scene_root.add_child(vfx_manager)
+	scene_root.add_child.call_deferred(vfx_manager)
 
 	vfx_manager.runtime_root = runtime_root
 	vfx_manager.dealer_anchor = dealer_anchor
@@ -2313,6 +2377,7 @@ func _finalize_online_hero_setup(payload: Dictionary) -> void:
 
 
 func _start_online_match_from_payload(payload: Dictionary) -> void:
+	online_setup_stage = "starting"
 	var p1_setup := _online_setup_for_player(payload, 1)
 	var p2_setup := _online_setup_for_player(payload, 2)
 	var match_rules: MatchRules = RUSH_MATCH_RULES if rush_mode_enabled else rules
@@ -2367,6 +2432,7 @@ func _start_online_match_from_payload(payload: Dictionary) -> void:
 	hud.set_interaction_enabled(true)
 	_refresh_rush_sacrifice_ui()
 	_refresh_balance_scale()
+	online_setup_stage = "playing"
 	print("ONLINE MATCH STARTED | seat=", local_player_id, " | mode=", payload.get("mode", "normal"))
 
 
@@ -2963,7 +3029,7 @@ func _on_end_turn_pressed() -> void:
 		interaction_locked = true
 		_refresh_rush_sacrifice_ui()
 		hud.set_interaction_enabled(false)
-		hud.refresh(state, local_player_id)
+		_refresh_hud_without_hidden_opponent_leak()
 		if online_session != null:
 			online_session.ready_turn(state.turn_number, keep_ids)
 		return
@@ -3059,9 +3125,7 @@ func _refresh_hud_without_hidden_opponent_leak() -> void:
 	# actions. Keep only the opponent-facing HUD fields at their last PUBLIC
 	# values until Turn Reveal. Local mana/status still refresh normally.
 	if (
-		online_mode
-		and state.phase == MatchPhase.Type.MAIN
-		and online_last_reveal_turn != state.turn_number
+		_online_hidden_privacy_active()
 		and online_public_opponent_mana >= 0
 	):
 		if hud.opponent_mana_label != null:
@@ -3261,6 +3325,49 @@ func _refresh_all_hero_type_visuals() -> void:
 			hero_view.call("refresh_gesture_override_label")
 
 
+func _play_remote_hidden_reveal_feedback(
+	payload: Dictionary
+) -> void:
+	var all_actions: Dictionary = payload.get(
+		"actions",
+		{}
+	) as Dictionary
+	var raw_actions: Variant = all_actions.get(
+		str(bot_player_id),
+		[]
+	)
+	if not (raw_actions is Array):
+		return
+
+	for raw_action: Variant in raw_actions:
+		if not (raw_action is Dictionary):
+			continue
+
+		var action: Dictionary = raw_action as Dictionary
+		var kind := String(action.get("kind", ""))
+
+		match kind:
+			"hero_active":
+				# The effect was already applied to MatchState silently during
+				# planning. Only now, in Reveal, may the opponent see it.
+				await _play_hero_active_ground_feedback(bot_player_id)
+				_refresh_board_shield_visuals(true)
+				if hud != null:
+					hud.refresh(state, local_player_id)
+
+			"rush_transform":
+				# State is already correct and the full Reveal sync has rebuilt the
+				# board. Refresh visible type/status labels only now.
+				for raw_view: Variant in card_views.values():
+					var card_view := raw_view as Card3D
+					if card_view == null or not is_instance_valid(card_view):
+						continue
+					if card_view.has_method("refresh_front_visual"):
+						card_view.call("refresh_front_visual")
+					if card_view.has_method("refresh_gesture_override_label"):
+						card_view.call("refresh_gesture_override_label")
+
+
 func _apply_online_turn_reveal(payload: Dictionary) -> void:
 	if not online_mode or state == null or engine == null:
 		return
@@ -3301,6 +3408,7 @@ func _apply_online_turn_reveal(payload: Dictionary) -> void:
 	# already-synchronized MatchState.
 	await _sync_visual_state()
 	_refresh_all_hero_type_visuals()
+	await _play_remote_hidden_reveal_feedback(payload)
 	if not _verify_online_server_hero_types(payload.get("hero_types", null)):
 		_report_online_client_fault("server_hero_type_mismatch_after_visual_sync")
 		return
@@ -3312,76 +3420,201 @@ func _apply_online_turn_reveal(payload: Dictionary) -> void:
 func _apply_online_remote_hidden_action(action: Dictionary) -> bool:
 	if state == null or engine == null:
 		return false
+
 	seed(maxi(1, int(action.get("_rng_seed", 1))))
 	var kind := String(action.get("kind", ""))
 	var applied := false
+
 	match kind:
 		"play":
-			var card := _find_card_instance_for_player(bot_player_id, int(action.get("card_id", -1)))
+			var card := _find_card_instance_for_player(
+				bot_player_id,
+				int(action.get("card_id", -1))
+			)
 			if card == null:
 				return false
-			applied = engine.play_card(bot_player_id, card, int(action.get("slot", -1)))
+			applied = engine.play_card(
+				bot_player_id,
+				card,
+				int(action.get("slot", -1))
+			)
+
 		"move":
-			var moving_card := _find_card_instance_for_player(bot_player_id, int(action.get("card_id", -1)))
+			var moving_card := _find_card_instance_for_player(
+				bot_player_id,
+				int(action.get("card_id", -1))
+			)
 			if moving_card == null:
 				return false
 			var from_slot := moving_card.current_slot
 			if not SlotID.is_valid(from_slot):
 				from_slot = int(action.get("from_slot", -1))
-			applied = engine.move_board_card(bot_player_id, from_slot, int(action.get("to_slot", -1)))
+			applied = engine.move_board_card(
+				bot_player_id,
+				from_slot,
+				int(action.get("to_slot", -1))
+			)
+
+		"hero_active":
+			# State only. Do NOT play feedback, update HUD, shields or piles here.
+			applied = _apply_online_hero_active_authoritatively(
+				bot_player_id
+			)
+
+		"rush_transform":
+			var target := _find_card_instance_for_player(
+				bot_player_id,
+				int(action.get("target_id", -1))
+			)
+			if target == null:
+				return false
+			var gesture: CardGesture.Type = int(
+				action.get("gesture", 0)
+			)
+			var removed := engine.apply_rush_transform(
+				bot_player_id,
+				target,
+				gesture
+			)
+			applied = removed != null
+
+		_:
+			return false
+
 	if not applied:
 		return false
-	# Remote actions stay visually hidden, but the underlying Hero state must
-	# already match the server-recorded transition before Reveal.
-	return _verify_online_hero_type_change(bot_player_id, action, false)
+
+	# Remote state is deterministic, but presentation remains at the last public
+	# snapshot until Turn Reveal.
+	return _verify_online_hero_type_change(
+		bot_player_id,
+		action,
+		false
+	)
+
+
+func _refresh_public_special_target_status(
+	attacker_player_id: int
+) -> void:
+	if state == null:
+		return
+
+	var target_player_id: int = (
+		2 if attacker_player_id == 1 else 1
+	)
+	var target_player: PlayerState = state.get_player(
+		target_player_id
+	)
+	if target_player == null or target_player.hero == null:
+		return
+
+	var hero: CardInstance = target_player.hero
+	var hero_view := card_views.get(
+		hero.instance_id,
+		null
+	) as Card3D
+	if hero_view == null or not is_instance_valid(hero_view):
+		return
+
+	# Special's HP/shield result is public immediately, but the Hero's hidden
+	# R/P/S type/position must remain untouched until Reveal.
+	hero_view.set_shield_count(
+		hero.shield_count,
+		true
+	)
+	hero_view.refresh_hero_status(
+		state.turn_number
+	)
+
+
+func _submit_online_immediate_game_over() -> void:
+	if (
+		not online_mode
+		or online_session == null
+		or state == null
+		or not state.is_game_over()
+		or online_immediate_game_over_reported
+	):
+		return
+
+	var final_digest := _build_online_state_digest()
+	if final_digest.is_empty():
+		_report_online_client_fault(
+			"empty_special_game_over_digest"
+		)
+		return
+
+	online_immediate_game_over_reported = true
+	interaction_locked = true
+	if hud != null:
+		hud.set_interaction_enabled(false)
+
+	# The server commits game-over only after BOTH clients report the same
+	# post-Special state. The popup appears on game_over_commit.
+	online_session.complete_turn(
+		state.turn_number,
+		final_digest,
+		true,
+		state.winner_id
+	)
 
 
 func _apply_online_public_action(payload: Dictionary) -> void:
 	if not online_mode or state == null or engine == null:
 		return
-	var sender_seat := int(payload.get("sender_seat", bot_player_id))
-	var event_turn := int(payload.get("turn", state.turn_number))
-	var action: Dictionary = payload.get("action", {}) as Dictionary
+
+	var sender_seat := int(
+		payload.get("sender_seat", bot_player_id)
+	)
+	var event_turn := int(
+		payload.get("turn", state.turn_number)
+	)
+	var action: Dictionary = payload.get(
+		"action",
+		{}
+	) as Dictionary
 	var kind := String(action.get("kind", ""))
+
 	if event_turn != state.turn_number:
-		_report_online_client_fault("public_action_turn_mismatch_" + kind)
+		_report_online_client_fault(
+			"public_action_turn_mismatch_" + kind
+		)
 		return
-	seed(maxi(1, int(payload.get("rng_seed", action.get("_rng_seed", 1)))))
-	match kind:
-		"hero_active":
-			if not _apply_online_hero_active_authoritatively(sender_seat):
-				_report_online_client_fault("hero_active_replay_failed")
-				return
-			_play_hero_active_ground_feedback(sender_seat)
-			_refresh_board_shield_visuals(true)
-			hud.refresh(state, local_player_id)
-		"special_attack":
-			if not engine.use_special_attack(sender_seat):
-				_report_online_client_fault("special_attack_replay_failed")
-				return
-			_play_special_attack_feedback(sender_seat)
-			_refresh_board_shield_visuals(true)
-			hud.refresh(state, local_player_id)
-		"rush_transform":
-			var target := _find_card_instance_for_player(sender_seat, int(action.get("target_id", -1)))
-			if target == null:
-				_report_online_client_fault("rush_target_missing")
-				return
-			var gesture: CardGesture.Type = int(action.get("gesture", 0))
-			var removed := engine.apply_rush_transform(sender_seat, target, gesture)
-			if removed == null:
-				_report_online_client_fault("rush_transform_replay_failed")
-				return
-			await _sync_visual_state()
-			hud.refresh(state, local_player_id)
-			_refresh_rush_sacrifice_ui()
-		_:
-			_report_online_client_fault("unknown_public_action_" + kind)
-			return
+
+	# Privacy contract: Special Attack is the ONLY planning action that is
+	# broadcast and presented immediately.
+	if kind != "special_attack":
+		_report_online_client_fault(
+			"unexpected_public_action_" + kind
+		)
+		return
+
+	seed(maxi(
+		1,
+		int(payload.get(
+			"rng_seed",
+			action.get("_rng_seed", 1)
+		))
+	))
+
+	if not engine.use_special_attack(sender_seat):
+		_report_online_client_fault(
+			"special_attack_replay_failed"
+		)
+		return
+
+	_play_special_attack_feedback(sender_seat)
+
+	# Special is explicitly public, so its own HP/shield result is immediate.
+	# Do not refresh card fronts/types here: those may contain hidden switches.
+	_refresh_public_special_target_status(sender_seat)
+	_refresh_hud_without_hidden_opponent_leak()
+
 	if sender_seat == local_player_id:
 		_finish_local_online_public_action_echo(kind)
-		if kind == "rush_transform":
-			_finish_rush_sacrifice_interaction()
+
+	if state.is_game_over():
+		_submit_online_immediate_game_over()
 
 
 func _on_online_hidden_action_accepted(payload: Dictionary) -> void:
@@ -3549,6 +3782,7 @@ func _apply_online_turn_start(payload: Dictionary) -> void:
 	online_hidden_action_sequence = 0
 	online_predicted_hidden_actions.clear()
 	online_hidden_action_pending = false
+	online_immediate_game_over_reported = false
 	_refresh_online_interaction_gate()
 
 func _apply_online_game_over_commit(payload: Dictionary) -> void:
@@ -3970,7 +4204,50 @@ func _find_card_slot(
 	return -1
 
 
+func _online_hidden_privacy_active() -> bool:
+	return (
+		online_mode
+		and online_setup_stage == "playing"
+		and state != null
+		and state.phase == MatchPhase.Type.MAIN
+		and online_resolving_turn < 0
+		and online_last_reveal_turn != state.turn_number
+	)
+
+
+func _sync_local_hidden_planning_visuals() -> void:
+	# Never rebuild opponent board/hand/piles from the already-mutated lockstep
+	# MatchState while their turn is still secret.
+	_clear_drop_highlight()
+	dragged_card = null
+
+	await _sync_local_board_visuals_only()
+
+	_remove_pile_card_views(local_player_id)
+	_remove_discarded_card_views(local_player_id)
+	_spawn_missing_local_hand_cards()
+	await _refresh_hand_positions()
+
+	_refresh_board_disabled_visuals(
+		false,
+		local_player_id
+	)
+	_refresh_board_shield_visuals(
+		false,
+		local_player_id
+	)
+	_refresh_pile_entities_for_player(
+		local_player_id
+	)
+	_restore_local_board_dragging()
+	_refresh_hud_without_hidden_opponent_leak()
+
+
 func _sync_visual_state() -> void:
+	if _online_hidden_privacy_active():
+		await _sync_local_hidden_planning_visuals()
+		return
+
 	_clear_drop_highlight()
 	dragged_card = null
 
@@ -4925,6 +5202,24 @@ func _finish_card_drag(
 				card_view,
 				hand_cover_target_before
 			)
+			_spawn_missing_local_hand_cards()
+			await _refresh_hand_positions()
+			_refresh_pile_entities_for_player(local_player_id)
+			_refresh_hud_without_hidden_opponent_leak()
+			return
+
+		# PoisonBehavior (and any future on-play consumable) can remove the card
+		# from the board inside MatchEngine.play_card(). Never continue with the
+		# generic board-position/VFX path after that, because current_slot is no
+		# longer a valid board slot.
+		if card.zone == CardZone.Type.REMOVED:
+			kept_hand_card_ids.erase(card.instance_id)
+			card_view.set_keep_selected(false)
+			card_views.erase(card.instance_id)
+			if is_instance_valid(card_view):
+				card_view.queue_free()
+
+			_sync_visual_slots_for_player(local_player_id)
 			_spawn_missing_local_hand_cards()
 			await _refresh_hand_positions()
 			_refresh_pile_entities_for_player(local_player_id)
@@ -5995,7 +6290,8 @@ func _refresh_opponent_hand_positions() -> void:
 
 func _refresh_board_disabled_visuals(
 	animate_changes: bool = true,
-	owner_filter: int = -1
+	owner_filter: int = -1,
+	allow_hidden_remote: bool = false
 ) -> float:
 	if engine == null:
 		return 0.0
@@ -6007,6 +6303,12 @@ func _refresh_board_disabled_visuals(
 
 	for player_id: int in [1, 2]:
 		if owner_filter != -1 and player_id != owner_filter:
+			continue
+		if (
+			_online_hidden_privacy_active()
+			and player_id == bot_player_id
+			and not allow_hidden_remote
+		):
 			continue
 		var player: PlayerState = engine.state.get_player(
 			player_id
@@ -8236,7 +8538,13 @@ func _remove_discarded_card_views(
 func _refresh_pile_entities() -> void:
 	if state == null:
 		return
+
 	for player_id: int in [1, 2]:
+		if (
+			_online_hidden_privacy_active()
+			and player_id == bot_player_id
+		):
+			continue
 		_refresh_pile_entities_for_player(player_id)
 
 
@@ -8466,7 +8774,9 @@ func _refresh_balance_scale() -> void:
 
 
 func _refresh_board_shield_visuals(
-	animate_change: bool = true
+	animate_change: bool = true,
+	owner_filter: int = -1,
+	allow_hidden_remote: bool = false
 ) -> void:
 	for card_instance_id: int in card_views:
 		var card_view: Card3D = card_views[
@@ -8487,6 +8797,19 @@ func _refresh_board_shield_visuals(
 				0,
 				false
 			)
+			continue
+
+		if (
+			owner_filter != -1
+			and card.owner_id != owner_filter
+		):
+			continue
+
+		if (
+			_online_hidden_privacy_active()
+			and card.owner_id == bot_player_id
+			and not allow_hidden_remote
+		):
 			continue
 
 		card_view.refresh_front_visual()

@@ -3,7 +3,6 @@ extends Node
 const LOBBY_SCRIPT := preload("res://online/online_lobby.gd")
 
 var lobby: RPSOnlineLobby
-var hooked_button: Button
 var starting_match := false
 
 func _ready() -> void:
@@ -13,98 +12,10 @@ func _ready() -> void:
 	if session != null:
 		session.match_found.connect(_on_match_found)
 		session.match_resumed.connect(_on_match_resumed)
-	call_deferred("_try_hook_menu")
-
-func _process(_delta: float) -> void:
-	if hooked_button == null or not is_instance_valid(hooked_button):
-		_try_hook_menu()
-
-func _try_hook_menu() -> void:
-	var button := get_tree().root.find_child(
-		"TwoPlayerButton",
-		true,
-		false
-	) as Button
-	if button == null:
-		return
-
-	if hooked_button == button:
-		return
-
-	hooked_button = button
-
-	# TwoPlayerButton already exists in MainMenuTransparent.tscn, but the
-	# current scene stores it as visible=false. Turn that real menu button into
-	# the Online entry instead of drawing over an invisible parent.
-	button.visible = true
-	button.disabled = false
-	button.mouse_filter = Control.MOUSE_FILTER_STOP
-	button.focus_mode = Control.FOCUS_NONE
-	button.flat = false
-	button.text = "آنلاین"
-	button.tooltip_text = "Online Multiplayer"
-
-	# Put Online on the second row, to the right of Tutorial.
-	# Main menu design resolution is 2400x1080, so these offsets scale with the
-	# existing canvas stretch exactly like the other menu hit areas.
-	button.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	# Keep Online on its own slot: second row, to the RIGHT of Tutorial.
-	# Previous coordinates overlapped the Single Player/Tutorial hit areas.
-	button.offset_left = 1380.0
-	button.offset_top = 650.0
-	button.offset_right = 1645.0
-	button.offset_bottom = 790.0
-
-	button.add_theme_font_size_override("font_size", 46)
-	button.add_theme_color_override(
-		"font_color",
-		Color(0.43, 0.20, 0.20, 1.0)
-	)
-	button.add_theme_color_override(
-		"font_hover_color",
-		Color(0.35, 0.12, 0.12, 1.0)
-	)
-	button.add_theme_color_override(
-		"font_pressed_color",
-		Color(0.30, 0.10, 0.10, 1.0)
-	)
-
-	var normal_style := StyleBoxFlat.new()
-	normal_style.bg_color = Color(1.0, 0.84, 0.64, 1.0)
-	normal_style.border_color = Color(0.30, 0.14, 0.10, 1.0)
-	normal_style.set_border_width_all(3)
-	normal_style.set_corner_radius_all(20)
-	button.add_theme_stylebox_override("normal", normal_style)
-
-	var hover_style := normal_style.duplicate() as StyleBoxFlat
-	hover_style.bg_color = Color(1.0, 0.90, 0.72, 1.0)
-	hover_style.set_border_width_all(4)
-	button.add_theme_stylebox_override("hover", hover_style)
-
-	var pressed_style := normal_style.duplicate() as StyleBoxFlat
-	pressed_style.bg_color = Color(0.93, 0.74, 0.54, 1.0)
-	button.add_theme_stylebox_override("pressed", pressed_style)
-
-	var menu := _find_menu_from_button(button)
-	if menu != null:
-		# Keep the old local two-player callback disabled. Our Online callback
-		# is connected to the same button.
-		menu.set("disable_two_player_for_now", true)
-
-	var callable := Callable(self, "_on_online_button_pressed")
-	if not button.pressed.is_connected(callable):
-		button.pressed.connect(callable)
-
-	print("ONLINE BUTTON VISIBLE: ", button.get_path())
 
 
-func _find_menu_from_button(button: Button) -> Node:
-	var node: Node = button
-	while node != null:
-		if node is CanvasLayer and String(node.name) == "MainMenu":
-			return node
-		node = node.get_parent()
-	return null
+func open_lobby() -> void:
+	_on_online_button_pressed()
 
 func _on_online_button_pressed() -> void:
 	if starting_match:

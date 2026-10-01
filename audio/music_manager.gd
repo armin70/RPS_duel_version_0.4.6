@@ -31,7 +31,7 @@ func _ready() -> void:
 		music_player.finished.connect(_on_music_finished)
 
 	# The app opens on the menu, so use the menu track by default.
-	# TransparentMainMenu also calls play_menu_music(), which is safe because
+	# MainMenu also calls play_menu_music(), which is safe because
 	# _switch_music() ignores requests for the track that is already playing.
 	play_menu_music()
 
