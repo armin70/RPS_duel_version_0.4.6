@@ -3,14 +3,14 @@
 [ext_resource type="Script" uid="uid://do8qa0y83wp2a" path="res://game/table/card_place_3d.gd" id="1_at33a"]
 
 [sub_resource type="BoxMesh" id="BoxMesh_78dhm"]
-size = Vector3(0.35, 0.02, 0.525)
+size = Vector3(0.42, 0.02, 0.63)
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_at33a"]
 shading_mode = 0
 albedo_color = Color(0.63529414, 1, 1, 1)
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_gc5er"]
-size = Vector3(0.35, 0.02, 0.525)
+size = Vector3(0.42, 0.02, 0.63)
 
 [node name="card_place_3d" type="Area3D" unique_id=1644330271]
 collision_layer = 2

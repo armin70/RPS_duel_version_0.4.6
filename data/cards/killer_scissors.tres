@@ -1,7 +1,7 @@
 [gd_resource type="Resource" script_class="CardDefinition" format=3 uid="uid://cx1gkltjetjq5"]
 
 [ext_resource type="Script" uid="uid://bs2blrv41ci6b" path="res://core/cards/behaviors/killer_behavior.gd" id="1_8knnj"]
-[ext_resource type="Texture2D" uid="uid://dqguaby8wbgwu" path="res://art/cards/Rps Card Design (9).png" id="2_8knnj"]
+[ext_resource type="Texture2D" uid="uid://caj512ctxwpjy" path="res://art/cards/new_set/Scissor Abjeez.png" id="2_8knnj"]
 [ext_resource type="Script" uid="uid://bfa6ofr3bgyvd" path="res://core/cards/card_definition.gd" id="3_a672o"]
 [ext_resource type="Texture2D" uid="uid://cms716g6pu8c8" path="res://art/card_info/31.png" id="3_tlqgh"]
 [ext_resource type="Resource" uid="uid://dbenkplfggs6j" path="res://data/vfx/killer_scissors_placed_vfx.tres" id="99_vfx1"]

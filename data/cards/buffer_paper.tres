@@ -1,7 +1,7 @@
 [gd_resource type="Resource" script_class="CardDefinition" format=3 uid="uid://cl52waa5uu5ym"]
 
 [ext_resource type="Script" uid="uid://bwxksyjmf6rpd" path="res://core/cards/behaviors/front_shield_behavior.gd" id="1_edgx8"]
-[ext_resource type="Texture2D" uid="uid://104prgoexbry" path="res://art/cards/28.png" id="2_edgx8"]
+[ext_resource type="Texture2D" uid="uid://tnvrlf0vnmh4" path="res://art/cards/new_set/paper template.png" id="2_edgx8"]
 [ext_resource type="Texture2D" uid="uid://bhmbw1f74twe4" path="res://art/card_info/39.png" id="3_0dtdk"]
 [ext_resource type="Script" uid="uid://bfa6ofr3bgyvd" path="res://core/cards/card_definition.gd" id="3_aru7s"]
 [ext_resource type="Resource" uid="uid://c2052lkdt76x5" path="res://data/vfx/buffer_placed.tres" id="3_elog7"]

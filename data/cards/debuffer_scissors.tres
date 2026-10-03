@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" uid="uid://bfa6ofr3bgyvd" path="res://core/cards/card_definition.gd" id="1_card"]
 [ext_resource type="Script" uid="uid://b0y1kt2q5oov3" path="res://core/cards/behaviors/debuffer_behavior.gd" id="2_behavior"]
-[ext_resource type="Texture2D" uid="uid://x8wafc3axdea" path="res://art/cards/new_batch/debuffer_scissors.png" id="3_art"]
+[ext_resource type="Texture2D" uid="uid://b7hc1n7c24bn6" path="res://art/cards/new_set/Crab.png" id="3_art"]
 [ext_resource type="Texture2D" uid="uid://bdrm0hb6p126k" path="res://art/card_info/new_corrected/195.jpg" id="99_info"]
 
 [sub_resource type="Resource" id="Behavior"]

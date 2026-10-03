@@ -29,6 +29,7 @@ var is_disabled: bool = false
 var is_face_up: bool = true
 
 
+@onready var card_body: MeshInstance3D = $CardBody
 @onready var card_art: MeshInstance3D = $CardArt
 @onready var card_name: Label3D = $CardName
 @onready var disabled_label: Label3D = $DisabledLabel
@@ -40,12 +41,28 @@ var is_face_up: bool = true
 
 const KEEP_RAISE_HEIGHT: float = 0.18
 
+const CARD_FRONT_SIZE := Vector2(0.35, 0.525)
+const HERO_ART_SCALE: float = 1.25
+
+const HERO_TYPE_ROCK: Texture2D = preload(
+	"res://art/hero_type_icons/rock.png"
+)
+const HERO_TYPE_PAPER: Texture2D = preload(
+	"res://art/hero_type_icons/paper.png"
+)
+const HERO_TYPE_SCISSORS: Texture2D = preload(
+	"res://art/hero_type_icons/scissors.png"
+)
+
 
 var keep_selected: bool = false
 var displayed_shield_count: int = 0
 var shield_badge_base_scale: Vector3 = Vector3.ONE
 var card_material: StandardMaterial3D
 var hero_status_label: Label3D
+var hero_hp_label: Label3D
+var hero_type_icon: MeshInstance3D
+var hero_type_material: StandardMaterial3D
 var card_status_label: Label3D
 var displayed_card_status: String = ""
 
@@ -64,8 +81,11 @@ func _ready() -> void:
 
 	_create_card_material()
 	_build_hero_status_label()
+	_build_hero_hp_label()
+	_build_hero_type_icon()
 	_build_card_status_label()
 	_refresh_gesture_override_label()
+	_refresh_hero_hp_visual()
 
 
 func _build_hero_status_label() -> void:
@@ -80,6 +100,193 @@ func _build_hero_status_label() -> void:
 	hero_status_label.no_depth_test = true
 	hero_status_label.visible = false
 	add_child(hero_status_label)
+
+
+func _build_hero_hp_label() -> void:
+	if hero_hp_label != null:
+		return
+
+	hero_hp_label = Label3D.new()
+	hero_hp_label.name = "HeroHPLabel"
+	hero_hp_label.font_size = 72
+	hero_hp_label.outline_size = 10
+	hero_hp_label.modulate = Color.WHITE
+	hero_hp_label.outline_modulate = Color.BLACK
+	hero_hp_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hero_hp_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	hero_hp_label.no_depth_test = true
+	hero_hp_label.visible = false
+	add_child(hero_hp_label)
+
+
+func _build_hero_type_icon() -> void:
+	if hero_type_icon != null:
+		return
+
+	hero_type_icon = MeshInstance3D.new()
+	hero_type_icon.name = "HeroTypeIcon"
+
+	var quad := QuadMesh.new()
+	quad.size = Vector2(0.08, 0.08)
+	hero_type_icon.mesh = quad
+
+	hero_type_material = StandardMaterial3D.new()
+	hero_type_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	hero_type_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	hero_type_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	hero_type_material.no_depth_test = true
+
+	hero_type_icon.material_override = hero_type_material
+	hero_type_icon.visible = false
+	add_child(hero_type_icon)
+
+
+func _hero_overlay_layout() -> Dictionary:
+	if (
+		card_instance == null
+		or card_instance.definition == null
+		or not card_instance.is_hero()
+	):
+		return {}
+
+	var hero_definition := card_instance.definition as HeroDefinition
+	if hero_definition == null:
+		return {}
+
+	match hero_definition.hero_kind:
+		HeroDefinition.HeroKind.ROSTAM:
+			return {
+				"hp_center": Vector2(0.78, 0.15),
+				"hp_height": 0.1434475,
+				"type_center": Vector2(0.7475098, 0.3845592),
+				"type_size": Vector2(0.2179856, 0.1741440)
+			}
+
+		HeroDefinition.HeroKind.TAHMINEH:
+			return {
+				"hp_center": Vector2(0.7845649, 0.1431313),
+				"hp_height": 0.1500310,
+				"type_center": Vector2(0.7891524, 0.3582052),
+				"type_size": Vector2(0.3004651, 0.1990081)
+			}
+
+		HeroDefinition.HeroKind.AFRASIAB:
+			return {
+				"hp_center": Vector2(0.8014690, 0.1572804),
+				"hp_height": 0.1607143,
+				"type_center": Vector2(0.8250822, 0.3634763),
+				"type_size": Vector2(0.3165785, 0.2453704)
+			}
+
+	return {}
+
+
+func _normalized_card_position(
+	normalized: Vector2,
+	height: float
+) -> Vector3:
+	var visual_size := CARD_FRONT_SIZE
+
+	if (
+		card_instance != null
+		and card_instance.is_hero()
+		and is_face_up
+	):
+		visual_size *= HERO_ART_SCALE
+
+	return Vector3(
+		(normalized.x - 0.5) * visual_size.x,
+		height,
+		(normalized.y - 0.5) * visual_size.y
+	)
+
+
+func _apply_hero_overlay_layout() -> void:
+	if hero_hp_label == null or hero_type_icon == null:
+		return
+
+	var layout: Dictionary = _hero_overlay_layout()
+	if layout.is_empty():
+		return
+
+	var hp_center: Vector2 = layout.get(
+		"hp_center",
+		Vector2(0.78, 0.16)
+	)
+	var hp_height: float = float(
+		layout.get("hp_height", 0.15)
+	)
+	var type_center: Vector2 = layout.get(
+		"type_center",
+		Vector2(0.79, 0.36)
+	)
+	var type_size: Vector2 = layout.get(
+		"type_size",
+		Vector2(0.26, 0.20)
+	)
+
+	var face_basis: Basis = card_name.transform.basis
+
+	hero_hp_label.transform = Transform3D(
+		face_basis,
+		_normalized_card_position(hp_center, 0.092)
+	)
+
+	hero_hp_label.pixel_size = (
+		(
+			hp_height
+			* CARD_FRONT_SIZE.y
+			* HERO_ART_SCALE
+		)
+		/ float(hero_hp_label.font_size)
+	)
+
+	hero_type_icon.transform = Transform3D(
+		face_basis,
+		_normalized_card_position(type_center, 0.091)
+	)
+
+	var quad := hero_type_icon.mesh as QuadMesh
+	if quad != null:
+		var visual_size := CARD_FRONT_SIZE * HERO_ART_SCALE
+		quad.size = Vector2(
+			type_size.x * visual_size.x,
+			type_size.y * visual_size.y
+		)
+
+
+func _hero_type_texture(
+	gesture: CardGesture.Type
+) -> Texture2D:
+	match gesture:
+		CardGesture.Type.ROCK:
+			return HERO_TYPE_ROCK
+		CardGesture.Type.PAPER:
+			return HERO_TYPE_PAPER
+		CardGesture.Type.SCISSORS:
+			return HERO_TYPE_SCISSORS
+
+	return null
+
+
+func _refresh_hero_hp_visual() -> void:
+	if hero_hp_label == null:
+		_build_hero_hp_label()
+
+	if (
+		card_instance == null
+		or not card_instance.is_hero()
+		or not is_face_up
+	):
+		hero_hp_label.visible = false
+		return
+
+	_apply_hero_overlay_layout()
+
+	hero_hp_label.text = str(
+		maxi(0, card_instance.hero_health)
+	)
+	hero_hp_label.visible = true
 
 
 func _build_card_status_label() -> void:
@@ -148,30 +355,41 @@ func _play_card_status_pulse() -> void:
 func refresh_hero_status(turn_number: int) -> void:
 	if hero_status_label == null:
 		_build_hero_status_label()
-	if card_instance == null or not card_instance.is_hero():
+
+	_refresh_hero_hp_visual()
+
+	if (
+		card_instance == null
+		or not card_instance.is_hero()
+		or not is_face_up
+	):
 		hero_status_label.visible = false
 		return
+
 	var parts: Array[String] = []
-	parts.append(
-		"HP %d/%d" % [
-			maxi(0, card_instance.hero_health),
-			maxi(1, card_instance.hero_max_health)
-		]
-	)
+
 	if card_instance.shield_count > 0:
 		parts.append("SHIELD %d" % card_instance.shield_count)
+
 	if card_instance.is_hero_furious(turn_number):
 		parts.append("FURY x2")
+
 	if card_instance.is_hero_sleeping(turn_number):
 		parts.append("SLEEP")
+
 	if card_instance.is_hero_rooted(turn_number):
 		parts.append("ROOT")
+
 	if card_instance.is_hero_type_locked(turn_number):
 		parts.append("TYPE LOCK")
+
 	if card_instance.is_hero_afrasiab_active(turn_number):
 		parts.append("POISON TRAP")
+
 	hero_status_label.text = " | ".join(parts)
 	hero_status_label.visible = not parts.is_empty()
+
+	_refresh_gesture_override_label()
 
 
 func _create_card_material() -> void:
@@ -187,7 +405,45 @@ func _create_card_material() -> void:
 	card_material.cull_mode = \
 		BaseMaterial3D.CULL_DISABLED
 
+	# Champion artwork contains real transparent pixels.
+	# Without an alpha transparency mode those pixels render black.
+	card_material.transparency = \
+		BaseMaterial3D.TRANSPARENCY_ALPHA
+
+	card_material.albedo_color = Color.WHITE
 	card_art.material_override = card_material
+
+
+func _refresh_card_art_shape() -> void:
+	if card_art == null:
+		return
+
+	var is_face_up_hero := (
+		is_face_up
+		and card_instance != null
+		and card_instance.is_hero()
+	)
+
+	# The champion PNGs are intentionally cut-out artwork that extends beyond
+	# a normal card rectangle. Enlarge only the face-up hero presentation.
+	var visual_scale := HERO_ART_SCALE if is_face_up_hero else 1.0
+	card_art.scale = Vector3(
+		visual_scale,
+		visual_scale,
+		visual_scale
+	)
+
+	# CardBody is an opaque box behind CardArt. It must be hidden for a
+	# face-up champion or it shows through the PNG's transparent pixels.
+	if card_body != null:
+		card_body.visible = not is_face_up_hero
+
+	# Avoid a rectangular card-shaped shadow around cut-out champion art.
+	card_art.cast_shadow = (
+		GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		if is_face_up_hero
+		else GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+	)
 
 
 func setup(
@@ -204,6 +460,7 @@ func setup(
 
 	_create_card_material()
 	set_face_up(start_face_up)
+	_refresh_card_art_shape()
 	_refresh_gesture_override_label()
 	refresh_card_status(-999, false)
 
@@ -236,7 +493,9 @@ func set_face_up(value: bool) -> void:
 	else:
 		card_material.albedo_texture = back_texture
 
+	_refresh_card_art_shape()
 	_refresh_gesture_override_label()
+	_refresh_hero_hp_visual()
 	if not value and card_status_label != null:
 		card_status_label.visible = false
 
@@ -256,7 +515,9 @@ func refresh_front_visual() -> void:
 	):
 		card_material.albedo_texture = card_instance.definition.front_texture
 
+	_refresh_card_art_shape()
 	_refresh_gesture_override_label()
+	_refresh_hero_hp_visual()
 
 
 func refresh_gesture_override_label() -> void:
@@ -267,25 +528,43 @@ func _refresh_gesture_override_label() -> void:
 	if card_name == null:
 		return
 
+	if hero_type_icon == null:
+		_build_hero_type_icon()
+
 	if card_instance == null or not is_face_up:
 		card_name.visible = false
-		return
-
-	# Normal cards only show this label when Rush changed their type. Heroes
-	# always show their built-in R/P/S type so their matchup is readable.
-	if (
-		not card_instance.has_gesture_override()
-		and not card_instance.is_hero()
-	):
-		card_name.visible = false
+		if hero_type_icon != null:
+			hero_type_icon.visible = false
 		return
 
 	var gesture: CardGesture.Type = card_instance.get_gesture()
+
 	if gesture not in [
 		CardGesture.Type.ROCK,
 		CardGesture.Type.PAPER,
 		CardGesture.Type.SCISSORS
 	]:
+		card_name.visible = false
+		hero_type_icon.visible = false
+		return
+
+	if card_instance.is_hero():
+		card_name.visible = false
+		_apply_hero_overlay_layout()
+
+		var icon: Texture2D = _hero_type_texture(gesture)
+		if icon == null or hero_type_material == null:
+			hero_type_icon.visible = false
+			return
+
+		hero_type_material.albedo_texture = icon
+		hero_type_icon.visible = true
+		return
+
+	# Keep the old text only for normal Rush-transformed cards.
+	hero_type_icon.visible = false
+
+	if not card_instance.has_gesture_override():
 		card_name.visible = false
 		return
 

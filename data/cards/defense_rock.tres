@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" uid="uid://8dbm7y35e4x8" path="res://core/cards/behaviors/defense_behavior.gd" id="1_tygn1"]
 [ext_resource type="Script" uid="uid://bfa6ofr3bgyvd" path="res://core/cards/card_definition.gd" id="1_wy2mk"]
-[ext_resource type="Texture2D" uid="uid://daygpt55b1mmo" path="res://art/cards/19.png" id="2_tygn1"]
+[ext_resource type="Texture2D" uid="uid://cii2uei6fi0ja" path="res://art/cards/new_set/Shield.png" id="2_tygn1"]
 [ext_resource type="Texture2D" uid="uid://w6utxfy53vi1" path="res://art/card_info/24.png" id="3_morto"]
 
 [sub_resource type="Resource" id="Resource_qhkdt"]

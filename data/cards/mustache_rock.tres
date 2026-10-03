@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" uid="uid://bfa6ofr3bgyvd" path="res://core/cards/card_definition.gd" id="1_japea"]
 [ext_resource type="Script" uid="uid://dyb7karb56da6" path="res://core/cards/behaviors/mustache_rock_behavior.gd" id="1_x32sk"]
-[ext_resource type="Texture2D" uid="uid://b655krr77wg8u" path="res://art/cards/10.png" id="2_x32sk"]
+[ext_resource type="Texture2D" uid="uid://brbm1tjf8wqet" path="res://art/cards/new_set/SangSibil.png" id="2_x32sk"]
 [ext_resource type="Texture2D" uid="uid://bk4eysqlgucn5" path="res://art/card_info/22.png" id="4_v23jg"]
 [ext_resource type="Resource" uid="uid://36db8uetptw0" path="res://data/vfx/mustache_dealer_vfx.tres" id="99_vfx1"]
 

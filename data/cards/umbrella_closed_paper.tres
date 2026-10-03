@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" path="res://core/cards/card_definition.gd" id="1_card"]
 [ext_resource type="Script" path="res://core/cards/behaviors/toggle_buffer_behavior.gd" id="2_behavior"]
-[ext_resource type="Texture2D" path="res://art/cards/stateful_buffers/umbrella_closed_paper.png" id="3_tex"]
+[ext_resource type="Texture2D" path="res://art/cards/new_set/Umbrella_Close.png" id="3_tex"]
 [ext_resource type="Resource" path="res://data/vfx/buffer_placed.tres" id="4_vfx"]
 [ext_resource type="Resource" path="res://data/vfx/buffer_impact.tres" id="5_vfx"]
 

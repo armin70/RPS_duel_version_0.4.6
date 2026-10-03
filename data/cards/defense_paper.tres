@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" uid="uid://8dbm7y35e4x8" path="res://core/cards/behaviors/defense_behavior.gd" id="1_aksl4"]
 [ext_resource type="Script" uid="uid://bfa6ofr3bgyvd" path="res://core/cards/card_definition.gd" id="1_n3b8h"]
-[ext_resource type="Texture2D" uid="uid://dwti0ka636rkv" path="res://art/cards/14.png" id="2_oh0ns"]
+[ext_resource type="Texture2D" uid="uid://cragissrm14em" path="res://art/cards/new_set/Baseball_Gloves.png" id="2_oh0ns"]
 [ext_resource type="Texture2D" uid="uid://dcg2l620k4d2" path="res://art/card_info/23.png" id="3_0em6d"]
 
 [sub_resource type="Resource" id="Resource_0em6d"]

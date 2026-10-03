@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" uid="uid://bfa6ofr3bgyvd" path="res://core/cards/card_definition.gd" id="1_card"]
 [ext_resource type="Script" uid="uid://brle4dtjqfqqh" path="res://core/cards/behaviors/toggle_buffer_behavior.gd" id="2_behavior"]
-[ext_resource type="Texture2D" uid="uid://0xs5nd4gco4r" path="res://art/cards/stateful_buffers/umbrella_open_paper.png" id="3_tex"]
+[ext_resource type="Texture2D" uid="uid://ciljuywvne7h2" path="res://art/cards/new_set/Umbrella_Open.png" id="3_tex"]
 [ext_resource type="Resource" uid="uid://c2052lkdt76x5" path="res://data/vfx/buffer_placed.tres" id="4_vfx"]
 [ext_resource type="Resource" uid="uid://bv7v6ipldwgyp" path="res://data/vfx/buffer_impact.tres" id="5_vfx"]
 [ext_resource type="Texture2D" uid="uid://487wllm2u6x4" path="res://art/card_info/new_corrected/191.jpg" id="99_info"]

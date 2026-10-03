@@ -2,7 +2,7 @@
 
 [ext_resource type="Resource" uid="uid://c3yt6kwerdkj7" path="res://data/vfx/Saw.tres" id="1_53wot"]
 [ext_resource type="Script" uid="uid://dknd8m8l1cjno" path="res://core/cards/behaviors/chainsaw_behavior.gd" id="1_wje6b"]
-[ext_resource type="Texture2D" uid="uid://c1vwnrgame2hn" path="res://art/cards/8.png" id="2_wje6b"]
+[ext_resource type="Texture2D" uid="uid://dgi64nibj6ydf" path="res://art/cards/new_set/TableSaw.png" id="2_wje6b"]
 [ext_resource type="Script" uid="uid://bfa6ofr3bgyvd" path="res://core/cards/card_definition.gd" id="3_yuiqf"]
 [ext_resource type="Texture2D" uid="uid://0giye3huju77" path="res://art/card_info/21.png" id="4_yuiqf"]
 

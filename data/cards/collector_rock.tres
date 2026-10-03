@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" uid="uid://bfa6ofr3bgyvd" path="res://core/cards/card_definition.gd" id="1_wckn4"]
 [ext_resource type="Script" uid="uid://x34p7rpd0swt" path="res://core/cards/behaviors/collector_behavior.gd" id="1_xxbps"]
-[ext_resource type="Texture2D" uid="uid://ddubid7tqqrxt" path="res://art/cards/20.png" id="2_xxbps"]
+[ext_resource type="Texture2D" uid="uid://btffhj4v6csov" path="res://art/cards/new_set/Wheelbarrow.png" id="2_xxbps"]
 [ext_resource type="Texture2D" uid="uid://3ehdo1mpkrlw" path="res://art/card_info/25.png" id="4_of2jk"]
 [ext_resource type="Resource" uid="uid://b0l1im83tbkrf" path="res://data/vfx/collector_rock_vfx.tres" id="99_vfx1"]
 

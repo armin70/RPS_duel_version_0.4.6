@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" uid="uid://c7x3gmsi5cxow" path="res://core/cards/behaviors/disable_gesture_behavior.gd" id="1_g44i5"]
 [ext_resource type="Script" uid="uid://bfa6ofr3bgyvd" path="res://core/cards/card_definition.gd" id="1_hrkap"]
-[ext_resource type="Texture2D" uid="uid://d0j33ptaqhmmy" path="res://art/cards/36.png" id="2_g44i5"]
+[ext_resource type="Texture2D" uid="uid://dtbrtm0v52q1o" path="res://art/cards/new_set/Staple Silencer.png" id="2_g44i5"]
 [ext_resource type="Texture2D" uid="uid://dbcmoh0pgh7lk" path="res://art/card_info/28.png" id="3_mf84o"]
 [ext_resource type="Resource" uid="uid://p2cum56sugt5" path="res://data/vfx/disabler_activate_vfx.tres" id="99_vfx1"]
 [ext_resource type="Resource" uid="uid://dia8v7ou1ir3d" path="res://data/vfx/disabler_hit_vfx.tres" id="99_vfx2"]

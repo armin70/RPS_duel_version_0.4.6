@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" uid="uid://bfa6ofr3bgyvd" path="res://core/cards/card_definition.gd" id="1_def"]
 [ext_resource type="Script" uid="uid://dyb7karb56da6" path="res://core/cards/behaviors/mustache_rock_behavior.gd" id="2_behavior"]
-[ext_resource type="Texture2D" uid="uid://d2wicq4frxc82" path="res://art/cards/evakaghaz.png" id="3_f7vt4"]
+[ext_resource type="Texture2D" uid="uid://dbyj6ehptmp4y" path="res://art/cards/new_set/MothersHands.png" id="3_f7vt4"]
 [ext_resource type="Resource" uid="uid://36db8uetptw0" path="res://data/vfx/mustache_dealer_vfx.tres" id="5_vfx"]
 
 [sub_resource type="Resource" id="Behavior"]

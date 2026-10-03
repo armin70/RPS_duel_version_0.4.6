@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" uid="uid://bfa6ofr3bgyvd" path="res://core/cards/card_definition.gd" id="1_card"]
 [ext_resource type="Script" uid="uid://ln5gru7h36fc" path="res://core/cards/behaviors/root_opponent_behavior.gd" id="2_behavior"]
-[ext_resource type="Texture2D" uid="uid://55dyxscwcc2c" path="res://art/cards/new_batch/rooter_paper.png" id="3_art"]
+[ext_resource type="Texture2D" uid="uid://74urjwsra5lh" path="res://art/cards/new_set/Tape.png" id="3_art"]
 [ext_resource type="Texture2D" uid="uid://dnbg7avuo6h12" path="res://art/card_info/new_corrected/178.jpg" id="99_info"]
 
 [sub_resource type="Resource" id="Behavior"]
