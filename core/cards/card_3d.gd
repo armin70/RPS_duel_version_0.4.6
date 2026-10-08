@@ -32,6 +32,7 @@ var is_face_up: bool = true
 @onready var card_body: MeshInstance3D = $CardBody
 @onready var card_art: MeshInstance3D = $CardArt
 @onready var card_name: Label3D = $CardName
+@onready var mana_label: Label3D = $ManaLabel
 @onready var disabled_label: Label3D = $DisabledLabel
 @onready var disabled_card: MeshInstance3D = $Disabled_card
 
@@ -41,13 +42,27 @@ var is_face_up: bool = true
 
 const KEEP_RAISE_HEIGHT: float = 0.18
 
+# Local player's cards are enlarged only while they are in HAND.
+# Board cards, heroes on the board, and opponent hand cards keep their normal size.
+const HAND_CARD_SCALE: float = 1.45
+# Screen-space downward offset for the local player's hand cards.
+const HAND_CARD_SCREEN_DOWN: float = 0.10
 
 const CARD_FRONT_SIZE := Vector2(0.35, 0.525)
-const HERO_ART_SCALE: float = 1.28
+const HERO_ART_SCALE: float = 1.4
 
-@export_category("Hero Board")
-@export_range(0.0, 0.50, 0.01)
-var hero_board_lift: float = 0.18
+# Disabled-card visual pulse. Uses the existing Disabled_card node and its
+# shader from card_3d.tscn; no extra runtime node is created.
+const DISABLED_EFFECT_REVEAL_TIME: float = 0.14
+const DISABLED_EFFECT_SETTLE_TIME: float = 0.30
+const DISABLED_EFFECT_START_DECAY: float = 0.98
+const DISABLED_EFFECT_FLASH_DECAY: float = 0.05
+const DISABLED_EFFECT_IDLE_DECAY: float = 0.62
+const DISABLED_EFFECT_PULSE_SCALE := Vector3(1.06, 1.0, 1.06)
+
+
+@export_category("Hero Visual")
+@export_range(0.0, 0.50, 0.01) var hero_visual_lift: float = 0.18
 
 const HERO_TYPE_ROCK: Texture2D = preload(
 	"res://art/hero_type_icons/rock.png"
@@ -68,8 +83,11 @@ var hero_status_label: Label3D
 var hero_hp_label: Label3D
 var hero_type_icon: MeshInstance3D
 var hero_type_material: StandardMaterial3D
+var _base_card_art_position: Vector3 = Vector3.ZERO
 var card_status_label: Label3D
 var displayed_card_status: String = ""
+var disabled_card_material: ShaderMaterial
+var disabled_effect_tween: Tween
 
 var _inspect_press_active: bool = false
 var _inspect_press_position: Vector2 = Vector2.ZERO
@@ -84,13 +102,16 @@ func _ready() -> void:
 	collision_mask = 0
 	input_ray_pickable = true
 
+	_base_card_art_position = card_art.position
 	_create_card_material()
+	_prepare_disabled_card_effect()
 	_build_hero_status_label()
 	_build_hero_hp_label()
 	_build_hero_type_icon()
 	_build_card_status_label()
 	_refresh_gesture_override_label()
 	_refresh_hero_hp_visual()
+	_refresh_hand_mana_label()
 
 
 func _build_hero_status_label() -> void:
@@ -113,13 +134,19 @@ func _build_hero_hp_label() -> void:
 
 	hero_hp_label = Label3D.new()
 	hero_hp_label.name = "HeroHPLabel"
-	hero_hp_label.font_size = 100
+	hero_hp_label.font_size = 72
 	hero_hp_label.outline_size = 10
 	hero_hp_label.modulate = Color.WHITE
 	hero_hp_label.outline_modulate = Color.BLACK
 	hero_hp_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hero_hp_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	hero_hp_label.no_depth_test = true
+	# Keep the HP number aligned to the card face. Billboard mode breaks the
+	# intended gem alignment when the hero is moved to other board rows.
+	hero_hp_label.billboard = BaseMaterial3D.BILLBOARD_DISABLED
+	# Draw after the card artwork so the number cannot disappear behind it.
+	hero_hp_label.render_priority = 127
+	hero_hp_label.outline_render_priority = 126
 	hero_hp_label.visible = false
 	add_child(hero_hp_label)
 
@@ -140,8 +167,11 @@ func _build_hero_type_icon() -> void:
 	hero_type_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	hero_type_material.cull_mode = BaseMaterial3D.CULL_DISABLED
 	hero_type_material.no_depth_test = true
+	hero_type_material.albedo_color = Color.WHITE
+	hero_type_material.render_priority = 127
 
 	hero_type_icon.material_override = hero_type_material
+	hero_type_icon.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	hero_type_icon.visible = false
 	add_child(hero_type_icon)
 
@@ -161,47 +191,62 @@ func _hero_overlay_layout() -> Dictionary:
 	match hero_definition.hero_kind:
 		HeroDefinition.HeroKind.ROSTAM:
 			return {
-				"hp_center": Vector2(0.7323731, 0.1912160),
-				"hp_height": 0.1434475,
-				"type_center": Vector2(0.7475098, 0.3845592),
-				"type_size": Vector2(0.2179856, 0.1741440)
+				"hp_center": Vector2(1.45, -.6),
+				"hp_height": 0.435,
+				"type_center": Vector2(1.65, 0.2),
+				"type_size": Vector2(0.865, 0.685)
 			}
 
 		HeroDefinition.HeroKind.TAHMINEH:
 			return {
-				"hp_center": Vector2(0.7845649, 0.1431313),
-				"hp_height": 0.1500310,
-				"type_center": Vector2(0.7891524, 0.3582052),
-				"type_size": Vector2(0.3004651, 0.1990081)
+				"hp_center": Vector2(1.55, -.72),
+				"hp_height": 0.435,
+				"type_center": Vector2(1.65, 0.2),
+				"type_size": Vector2(0.865, 0.685)
 			}
 
 		HeroDefinition.HeroKind.AFRASIAB:
 			return {
-				"hp_center": Vector2(0.8014690, 0.1572804),
-				"hp_height": 0.1607143,
-				"type_center": Vector2(0.8250822, 0.3634763),
-				"type_size": Vector2(0.3165785, 0.2453704)
+				"hp_center": Vector2(1.6, -.8),
+				"hp_height": 0.435,
+				"type_center": Vector2(1.65, 0.2),
+				"type_size": Vector2(0.865, 0.685)
 			}
 
 	return {}
+
+
+func _hero_visual_size() -> Vector2:
+	if (
+		card_instance != null
+		and card_instance.is_hero()
+		and is_face_up
+	):
+		return CARD_FRONT_SIZE * HERO_ART_SCALE
+
+	return CARD_FRONT_SIZE
+
+
+func _hero_overlay_lift() -> float:
+	if (
+		card_instance != null
+		and card_instance.is_hero()
+		and is_face_up
+		and card_instance.zone == CardZone.Type.BOARD
+	):
+		return hero_visual_lift
+
+	return 0.0
 
 
 func _normalized_card_position(
 	normalized: Vector2,
 	height: float
 ) -> Vector3:
-	var visual_size := CARD_FRONT_SIZE
-
-	if (
-		card_instance != null
-		and card_instance.is_hero()
-		and is_face_up
-	):
-		visual_size *= HERO_ART_SCALE
-
+	var visual_size: Vector2 = _hero_visual_size()
 	return Vector3(
 		(normalized.x - 0.5) * visual_size.x,
-		height,
+		height + _hero_overlay_lift(),
 		(normalized.y - 0.5) * visual_size.y
 	)
 
@@ -238,11 +283,7 @@ func _apply_hero_overlay_layout() -> void:
 	)
 
 	hero_hp_label.pixel_size = (
-		(
-			hp_height
-			* CARD_FRONT_SIZE.y
-			* HERO_ART_SCALE
-		)
+		(hp_height * _hero_visual_size().y)
 		/ float(hero_hp_label.font_size)
 	)
 
@@ -253,7 +294,7 @@ func _apply_hero_overlay_layout() -> void:
 
 	var quad := hero_type_icon.mesh as QuadMesh
 	if quad != null:
-		var visual_size := CARD_FRONT_SIZE * HERO_ART_SCALE
+		var visual_size: Vector2 = _hero_visual_size()
 		quad.size = Vector2(
 			type_size.x * visual_size.x,
 			type_size.y * visual_size.y
@@ -292,6 +333,27 @@ func _refresh_hero_hp_visual() -> void:
 		maxi(0, card_instance.hero_health)
 	)
 	hero_hp_label.visible = true
+
+
+func _refresh_hand_mana_label() -> void:
+	if mana_label == null:
+		return
+
+	var show_mana: bool = (
+		card_instance != null
+		and card_instance.definition != null
+		and is_face_up
+		and is_draggable
+		and card_instance.zone == CardZone.Type.HAND
+		and not card_instance.is_hero()
+	)
+
+	mana_label.visible = show_mana
+
+	if not show_mana:
+		return
+
+	mana_label.text = str(card_instance.get_mana_cost())
 
 
 func _build_card_status_label() -> void:
@@ -408,31 +470,45 @@ func _create_card_material() -> void:
 	card_material.albedo_color = Color.WHITE
 	card_art.material_override = card_material
 
+
 func _refresh_card_art_shape() -> void:
 	if card_art == null:
 		return
 
-	var is_face_up_hero := (
+	var is_face_up_hero: bool = (
 		is_face_up
 		and card_instance != null
 		and card_instance.is_hero()
 	)
 
-	# The champion PNGs are intentionally cut-out artwork that extends beyond
-	# a normal card rectangle. Enlarge only the face-up hero presentation.
-	var visual_scale := HERO_ART_SCALE if is_face_up_hero else 1.0
-	card_art.scale = Vector3(
-		visual_scale,
-		visual_scale,
-		visual_scale
+	# IMPORTANT: never resize the hero QuadMesh from the PNG dimensions.
+	# The intended champion size is the existing card size multiplied by
+	# HERO_ART_SCALE. This keeps Rostam/Tahmineh/Afrasiab exactly as large
+	# as the approved board presentation.
+	var visual_scale: float = HERO_ART_SCALE if is_face_up_hero else 1.0
+	card_art.scale = Vector3(visual_scale, visual_scale, visual_scale)
+
+	# Lift only the visible hero artwork on the board. Do NOT move Card3D itself,
+	# so the slot/collision/input/home transform stay unchanged.
+	card_art.position = _base_card_art_position
+	if (
+		is_face_up_hero
+		and card_instance.zone == CardZone.Type.BOARD
+	):
+		card_art.position += Vector3.UP * hero_visual_lift
+
+	# The solid card body is only hidden behind a face-up transparent hero.
+	# Normal cards and face-down cards keep their original body.
+	if card_body != null:
+		card_body.visible = not is_face_up_hero
+
+	# Transparent champion art must not cast a rectangular quad shadow.
+	card_art.cast_shadow = (
+		GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		if is_face_up_hero
+		else GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 	)
 
-	# Keep the PNG's transparent background visible.
-	# CardBody is the large solid rectangle that was appearing behind the artwork.
-	if card_body != null:
-		card_body.visible = false
-
-	card_art.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 func setup(
 	new_card_instance: CardInstance,
@@ -451,6 +527,8 @@ func setup(
 	_refresh_card_art_shape()
 	_refresh_gesture_override_label()
 	refresh_card_status(-999, false)
+	_apply_home_transform()
+	_refresh_hand_mana_label()
 
 
 func set_face_up(value: bool) -> void:
@@ -486,6 +564,8 @@ func set_face_up(value: bool) -> void:
 	_refresh_hero_hp_visual()
 	if not value and card_status_label != null:
 		card_status_label.visible = false
+	_apply_home_transform()
+	_refresh_hand_mana_label()
 
 
 func refresh_front_visual() -> void:
@@ -501,12 +581,12 @@ func refresh_front_visual() -> void:
 		and card_instance.definition != null
 		and card_instance.definition.front_texture != null
 	):
-		card_material.albedo_texture = \
-			card_instance.definition.front_texture
+		card_material.albedo_texture = card_instance.definition.front_texture
 
 	_refresh_card_art_shape()
 	_refresh_gesture_override_label()
 	_refresh_hero_hp_visual()
+	_refresh_hand_mana_label()
 
 
 func refresh_gesture_override_label() -> void:
@@ -581,23 +661,34 @@ func set_keep_selected(value: bool) -> void:
 
 
 func _apply_home_transform() -> void:
+	# Always restore the authoritative home transform first. This prevents the
+	# hand scale from accumulating when move_home()/return_home() run repeatedly.
 	global_transform = home_transform
 
+	# Only the local player's hand cards are draggable. Enlarge those cards while
+	# they are actually in HAND; board cards and the opponent hand are untouched.
 	if (
 		card_instance != null
-		and card_instance.is_hero()
-		and is_face_up
-		and card_instance.zone == CardZone.Type.BOARD
+		and card_instance.zone == CardZone.Type.HAND
+		and is_draggable
 	):
-		global_position += Vector3.UP * hero_board_lift
+		scale *= HAND_CARD_SCALE
+
+		# Move the whole local hand card downward relative to the active camera,
+		# so the result is visually down on screen regardless of board rotation.
+		var active_camera := get_viewport().get_camera_3d()
+		if active_camera != null:
+			var screen_up_world := active_camera.global_transform.basis.y.normalized()
+			global_position -= screen_up_world * HAND_CARD_SCREEN_DOWN
 
 	if (
 		keep_selected
 		and card_instance != null
 		and card_instance.zone == CardZone.Type.HAND
 	):
-		global_position += \
-			Vector3.UP * KEEP_RAISE_HEIGHT
+		global_position += Vector3.UP * KEEP_RAISE_HEIGHT
+
+	_refresh_hand_mana_label()
 
 
 func _input_event(
@@ -721,21 +812,103 @@ func _cancel_inspect_hold() -> void:
 	_inspect_press_serial += 1
 
 
+func _prepare_disabled_card_effect() -> void:
+	if disabled_card == null:
+		return
+
+	var source_material := disabled_card.material_override as ShaderMaterial
+	if source_material != null:
+		disabled_card_material = source_material.duplicate(true) as ShaderMaterial
+		disabled_card.material_override = disabled_card_material
+		disabled_card_material.set_shader_parameter(
+			"effect_decay",
+			DISABLED_EFFECT_IDLE_DECAY
+		)
+
+	disabled_card.scale = Vector3.ONE
+
+
+func _set_disabled_effect_decay(value: float) -> void:
+	if disabled_card_material == null:
+		return
+
+	disabled_card_material.set_shader_parameter(
+		"effect_decay",
+		value
+	)
+
+
+func _play_disabled_hit_effect() -> float:
+	if disabled_card == null:
+		return 0.0
+
+	if is_instance_valid(disabled_effect_tween):
+		disabled_effect_tween.kill()
+
+	disabled_card.visible = true
+	disabled_card.scale = Vector3.ONE
+	_set_disabled_effect_decay(DISABLED_EFFECT_START_DECAY)
+
+	disabled_effect_tween = create_tween()
+	disabled_effect_tween.set_trans(Tween.TRANS_QUAD)
+	disabled_effect_tween.set_ease(Tween.EASE_OUT)
+
+	disabled_effect_tween.tween_method(
+		_set_disabled_effect_decay,
+		DISABLED_EFFECT_START_DECAY,
+		DISABLED_EFFECT_FLASH_DECAY,
+		DISABLED_EFFECT_REVEAL_TIME
+	)
+	disabled_effect_tween.parallel().tween_property(
+		disabled_card,
+		"scale",
+		DISABLED_EFFECT_PULSE_SCALE,
+		DISABLED_EFFECT_REVEAL_TIME
+	)
+
+	disabled_effect_tween.tween_method(
+		_set_disabled_effect_decay,
+		DISABLED_EFFECT_FLASH_DECAY,
+		DISABLED_EFFECT_IDLE_DECAY,
+		DISABLED_EFFECT_SETTLE_TIME
+	)
+	disabled_effect_tween.parallel().tween_property(
+		disabled_card,
+		"scale",
+		Vector3.ONE,
+		DISABLED_EFFECT_SETTLE_TIME
+	)
+
+	return (
+		DISABLED_EFFECT_REVEAL_TIME
+		+ DISABLED_EFFECT_SETTLE_TIME
+	)
+
+
 func set_disabled(
 	value: bool,
-	_animate_change: bool = true
+	animate_change: bool = true
 ) -> float:
+	var was_disabled: bool = is_disabled
 	is_disabled = value
 
-	# DisabledLabel is intentionally not used in the current presentation.
-	# disabled_label.visible = value
+	# Keep the persistent disabled overlay visible for as long as the card
+	# remains disabled. The one-shot pulse is played only on the transition.
 	disabled_card.visible = value
-
-	# A disabled card can still be picked so game logic can decide whether
-	# the interaction is allowed.
 	input_ray_pickable = true
 
-	# One-shot disabled-hit VFX is now handled by CardVFXManager3D.
+	if not value:
+		if is_instance_valid(disabled_effect_tween):
+			disabled_effect_tween.kill()
+		disabled_card.scale = Vector3.ONE
+		_set_disabled_effect_decay(DISABLED_EFFECT_IDLE_DECAY)
+		return 0.0
+
+	var became_disabled: bool = value and not was_disabled
+	if became_disabled and animate_change:
+		return _play_disabled_hit_effect()
+
+	_set_disabled_effect_decay(DISABLED_EFFECT_IDLE_DECAY)
 	return 0.0
 
 
@@ -798,10 +971,10 @@ func play_rush_penalty_remove(
 	if card_material == null:
 		return 0.0
 
-	# Hand cards do not need status overlays while they disappear.
 	disabled_card.visible = false
 	shield_badge.visible = false
 
+	card_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	var start_color: Color = card_material.albedo_color
 	start_color.a = 1.0
 	card_material.albedo_color = start_color

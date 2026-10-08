@@ -225,6 +225,22 @@ var result_loop_fallback_duration: float = 0.35
 const MAX_KEPT_HAND_CARDS: int = 3
 const MAX_HAND_CARDS: int = 6
 const TAP_DRAG_THRESHOLD: float = 18.0
+
+@export_category("Centered Hand Presentation")
+@export_range(1.0, 2.5, 0.05)
+var centered_hand_scale_multiplier: float = 1.45
+
+# The existing project already moves the hand toward the middle on an empty
+# board tap. Mirror that same tap locally so the hand cards grow at the exact
+# same moment, without depending on where that movement is implemented.
+@export_range(0.0, 0.45, 0.01)
+var centered_hand_tap_side_margin_ratio: float = 0.20
+@export_range(0.55, 1.0, 0.01)
+var centered_hand_tap_bottom_limit_ratio: float = 0.82
+
+var centered_hand_scale_active: bool = false
+var centered_hand_base_scales: Dictionary = {}
+
 var engine: MatchEngine
 var state: MatchState
 var kept_hand_card_ids: Dictionary = {}
@@ -4263,8 +4279,8 @@ func _sync_visual_state() -> void:
 	card_views.clear()
 	opponent_hand_views.clear()
 
-	await get_tree().process_frame
-
+	# Rebuild in the same frame. queue_free() removes old views at frame end,
+	# so spawning replacements now prevents a one-frame empty-card flicker.
 	_spawn_dealer_cards()
 
 	_spawn_board_cards(1)
@@ -4713,6 +4729,10 @@ func _input(event: InputEvent) -> void:
 		return
 
 	if dragged_card == null:
+		# Empty tap = the same gesture the current scene uses to bring the
+		# player's hand into the middle. Toggle only the visual scale here.
+		if _is_centered_hand_toggle_release(event):
+			_toggle_centered_hand_scale()
 		return
 
 	if event is InputEventScreenDrag:
@@ -4739,6 +4759,122 @@ func _input(event: InputEvent) -> void:
 			_finish_pointer_interaction(
 				event.position
 			)
+
+func _process(_delta: float) -> void:
+	# move_home()/return_home() can rewrite a Card3D transform while the hand is
+	# being animated. Re-apply the enlarged scale every frame while centered so
+	# the effect cannot be immediately overwritten by another hand animation.
+	if centered_hand_scale_active:
+		_apply_centered_hand_scale()
+
+
+func _is_centered_hand_toggle_release(event: InputEvent) -> bool:
+	if interaction_locked:
+		return false
+	if state == null:
+		return false
+	if state.phase != MatchPhase.Type.MAIN:
+		return false
+
+	var screen_position := Vector2.ZERO
+	var is_release := false
+
+	if event is InputEventScreenTouch:
+		var touch := event as InputEventScreenTouch
+		is_release = not touch.pressed
+		screen_position = touch.position
+	elif event is InputEventMouseButton:
+		var mouse := event as InputEventMouseButton
+		is_release = (
+			mouse.button_index == MOUSE_BUTTON_LEFT
+			and not mouse.pressed
+		)
+		screen_position = mouse.position
+	else:
+		return false
+
+	if not is_release:
+		return false
+
+	var viewport_size := get_viewport().get_visible_rect().size
+	if viewport_size.x <= 0.0 or viewport_size.y <= 0.0:
+		return false
+
+	var x_ratio: float = screen_position.x / viewport_size.x
+	var y_ratio: float = screen_position.y / viewport_size.y
+
+	# Keep fixed HUD buttons out of this gesture. The board's central area is
+	# enough to open/close the hand and mirrors normal gameplay taps.
+	if x_ratio < centered_hand_tap_side_margin_ratio:
+		return false
+	if x_ratio > 1.0 - centered_hand_tap_side_margin_ratio:
+		return false
+	if y_ratio > centered_hand_tap_bottom_limit_ratio:
+		return false
+
+	return true
+
+
+func _toggle_centered_hand_scale() -> void:
+	centered_hand_scale_active = not centered_hand_scale_active
+
+	if centered_hand_scale_active:
+		_capture_centered_hand_base_scales()
+		_apply_centered_hand_scale()
+	else:
+		_restore_centered_hand_base_scales()
+
+
+func _capture_centered_hand_base_scales() -> void:
+	centered_hand_base_scales.clear()
+
+	if state == null:
+		return
+	var player := state.get_player(local_player_id)
+	if player == null:
+		return
+
+	for card: CardInstance in player.hand:
+		if card == null:
+			continue
+		var card_view := card_views.get(card.instance_id, null) as Card3D
+		if card_view == null or not is_instance_valid(card_view):
+			continue
+		centered_hand_base_scales[card.instance_id] = card_view.scale
+
+
+func _apply_centered_hand_scale() -> void:
+	if state == null:
+		return
+	var player := state.get_player(local_player_id)
+	if player == null:
+		return
+
+	for card: CardInstance in player.hand:
+		if card == null:
+			continue
+		var card_view := card_views.get(card.instance_id, null) as Card3D
+		if card_view == null or not is_instance_valid(card_view):
+			continue
+		if card_view == dragged_card:
+			continue
+
+		if not centered_hand_base_scales.has(card.instance_id):
+			centered_hand_base_scales[card.instance_id] = card_view.scale
+
+		var base_scale: Vector3 = centered_hand_base_scales[card.instance_id]
+		card_view.scale = base_scale * centered_hand_scale_multiplier
+
+
+func _restore_centered_hand_base_scales() -> void:
+	for raw_id: Variant in centered_hand_base_scales.keys():
+		var card_view := card_views.get(raw_id, null) as Card3D
+		if card_view == null or not is_instance_valid(card_view):
+			continue
+		card_view.scale = centered_hand_base_scales[raw_id]
+
+	centered_hand_base_scales.clear()
+
 
 func _try_select_deck_at_screen_position(
 	screen_position: Vector2

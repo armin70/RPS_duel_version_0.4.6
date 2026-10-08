@@ -17,7 +17,7 @@ boot_splash/image="res://art/splashscreen.png"
 config/icon="res://art/icongame.png"
 
 [autoload]
-FixedBattleHUD="*res://game/ui/fixed_battle_hud.gd"
+
 MusicManager="*res://audio/music_manager.tscn"
 OnlineSession="*res://online/online_session.gd"
 OnlineBootstrap="*res://online/online_bootstrap.gd"

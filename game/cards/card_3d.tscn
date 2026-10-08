@@ -149,6 +149,16 @@ shape = SubResource("BoxShape3D_hee7s")
 transform = Transform3D(1, 0, 0, 0, -4.371139e-08, 1, 0, -1, -4.371139e-08, 0, 0.08, 0)
 visible = false
 
+[node name="ManaLabel" type="Label3D" parent="." unique_id=1472916635]
+transform = Transform3D(1, 0, 0, 0, -4.371139e-08, 1, 0, -1, -4.371139e-08, -0.29324803, 0.12, -1.202265)
+pixel_size = 0.01
+no_depth_test = true
+modulate = Color(0.72, 1, 1, 1)
+outline_modulate = Color(0, 0.14, 0.18, 1)
+text = "1"
+font_size = 56
+outline_size = 14
+
 [node name="DisabledOverlay" type="MeshInstance3D" parent="." unique_id=931473029]
 transform = Transform3D(1, 0, 0, 0, 1.1924881e-08, 1, 0, -1, 1.1924881e-08, 0, 0.08560486, 0)
 visible = false

@@ -1562,7 +1562,7 @@ visible = false
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.8098207, 0, 24.224922)
 
 [node name="GameLayout" type="Node3D" parent="." unique_id=549586605]
-transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 0, 0.7, 0)
+transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 0, 0.61880654, 0)
 script = ExtResource("4_63mfb")
 
 [node name="OpponentHand" type="Node3D" parent="GameLayout" unique_id=1054478458]
@@ -1575,7 +1575,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 2.4167843)
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.7107703e-08, 0, -5.408445)
 
 [node name="BackLeft" parent="GameLayout/OpponentBoard/BackRow" unique_id=1644330271 instance=ExtResource("5_4f7us")]
-transform = Transform3D(-4.371139e-08, 0, -1, 0, 1, 0, 1, 0, -4.371139e-08, -3.55, -0.53, 7.83)
+transform = Transform3D(-4.371139e-08, 0, -1, 0, 1, 0, 1, 0, -4.371139e-08, -3.45, -0.53, 7.83)
 owner_id = 1
 logical_id = 4
 
@@ -1598,7 +1598,7 @@ logical_id = 7
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.8315845e-08, 0, -3.8724053)
 
 [node name="FrontLeft" parent="GameLayout/OpponentBoard/FrontRow" unique_id=1125075274 instance=ExtResource("5_4f7us")]
-transform = Transform3D(-4.371139e-08, 0, -1, 0, 1, 0, 1, 0, -4.371139e-08, -3.55, -0.53, 4.37)
+transform = Transform3D(-4.371139e-08, 0, -1, 0, 1, 0, 1, 0, -4.371139e-08, -3.45, -0.53, 4.37)
 owner_id = 1
 logical_id = 0
 
@@ -1618,7 +1618,7 @@ logical_id = 3
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0.1972936)
 
 [node name="DealerLeft" parent="GameLayout/DealerRow" unique_id=1826583168 instance=ExtResource("5_4f7us")]
-transform = Transform3D(-4.371139e-08, 0, -1, 0, 1, 0, 1, 0, -4.371139e-08, -3.55, -0.53, -0.16)
+transform = Transform3D(-4.371139e-08, 0, -1, 0, 1, 0, 1, 0, -4.371139e-08, -3.45, -0.53, -0.16)
 kind = 1
 logical_id = 0
 
@@ -1644,7 +1644,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -1.692)
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.8739521e-08, 0, 4.820233)
 
 [node name="BackLeft" parent="GameLayout/PlayerBoard/BackRow" unique_id=842556439 instance=ExtResource("5_4f7us")]
-transform = Transform3D(-4.371139e-08, 0, -1, 0, 1, 0, 1, 0, -4.371139e-08, -3.55, -0.53, -7.92)
+transform = Transform3D(-4.371139e-08, 0, -1, 0, 1, 0, 1, 0, -4.371139e-08, -3.45, -0.53, -7.92)
 owner_id = 1
 logical_id = 4
 
@@ -1667,7 +1667,7 @@ logical_id = 7
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.0683565e-08, 0, 3.4814808)
 
 [node name="FrontLeft" parent="GameLayout/PlayerBoard/FrontRow" unique_id=48097608 instance=ExtResource("5_4f7us")]
-transform = Transform3D(-4.371139e-08, 0, -1, 0, 1, 0, 1, 0, -4.371139e-08, -3.55, -0.523, -4.64)
+transform = Transform3D(-4.371139e-08, 0, -1, 0, 1, 0, 1, 0, -4.371139e-08, -3.45, -0.523, -4.64)
 owner_id = 1
 logical_id = 0
 
@@ -1684,7 +1684,7 @@ transform = Transform3D(-4.371139e-08, 0, -1, 0, 1, 0, 1, 0, -4.371139e-08, 4.01
 logical_id = 3
 
 [node name="PlayerHand" type="Node3D" parent="GameLayout" unique_id=1878258444]
-transform = Transform3D(-4.371139e-08, -0.6427875, -0.7660444, 0, 0.7660444, -0.6427875, 1, -2.8097135e-08, -3.3484863e-08, -5.365056, -0.40099996, -0.17651772)
+transform = Transform3D(-4.371139e-08, -0.6427876, -0.76604444, 0, 0.76604444, -0.6427876, 1, -2.8097137e-08, -3.3484866e-08, -5.8536263, -0.40099996, -0.17651774)
 
 [node name="PlayerPiles" type="Node3D" parent="GameLayout" unique_id=479472764]
 
@@ -1808,6 +1808,7 @@ offset_right = 2335.0
 offset_bottom = 621.0
 
 [node name="ManaBackground" type="TextureRect" parent="HUD/Root/PlayerPassPanel" unique_id=304730188]
+visible = false
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -1820,6 +1821,7 @@ expand_mode = 1
 
 [node name="EndTurnButton" type="TextureButton" parent="HUD/Root/PlayerPassPanel" unique_id=145298847]
 unique_name_in_owner = true
+visible = false
 layout_mode = 0
 offset_left = 20.0
 offset_top = 29.0
@@ -1846,6 +1848,7 @@ offset_bottom = -296.0
 scale = Vector2(0.5, 0.5)
 
 [node name="PlayerManaPanel" type="Control" parent="HUD/Root" unique_id=269721053]
+visible = false
 anchors_preset = 0
 offset_left = 14.0
 offset_top = 766.0
@@ -1879,6 +1882,7 @@ horizontal_alignment = 1
 vertical_alignment = 1
 
 [node name="InfoButton" type="TextureButton" parent="HUD" unique_id=1924591712]
+visible = false
 offset_left = 2169.0
 offset_top = 897.00006
 offset_right = 2706.0
