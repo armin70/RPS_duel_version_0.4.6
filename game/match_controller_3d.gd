@@ -56,6 +56,22 @@ const DEFAULT_DRAW_RESULT_FRAMES: SpriteFrames = preload(
 	"res://data/vfx/combat_result_draw_frames.tres"
 )
 
+const ROW_MARKER_PLAYER_BACK: Texture2D = preload(
+	"res://art/main_land/row_markers/player_back.png"
+)
+const ROW_MARKER_PLAYER_FRONT: Texture2D = preload(
+	"res://art/main_land/row_markers/player_front.png"
+)
+const ROW_MARKER_DEALER: Texture2D = preload(
+	"res://art/main_land/row_markers/dealer.png"
+)
+const ROW_MARKER_OPPONENT_FRONT: Texture2D = preload(
+	"res://art/main_land/row_markers/opponent_front.png"
+)
+const ROW_MARKER_OPPONENT_BACK: Texture2D = preload(
+	"res://art/main_land/row_markers/opponent_back.png"
+)
+
 
 @export_category("VFX")
 
@@ -117,6 +133,17 @@ var deck_choice_animation_time: float = 0.30
 @export var camera_3d: Camera3D
 @export var hud: GameHUD
 @export var balance_scale: GameBalanceScale3D
+
+@export_category("Board Row Markers")
+@export var show_board_row_markers: bool = true
+@export_range(0.40, 1.30, 0.01)
+var board_row_marker_bottom_offset: float = 1.29
+@export_range(0.85, 0.99, 0.001)
+var board_row_marker_screen_y_ratio: float = 0.962
+@export_range(0.18, 0.55, 0.01)
+var board_row_marker_height_ratio: float = 0.33
+@export_range(0.0, 0.05, 0.001)
+var board_row_marker_surface_lift: float = 0.008
 
 @export_category("Tutorial")
 @export var tutorial_enabled: bool = false
@@ -355,6 +382,7 @@ func _ready() -> void:
 	_ensure_hero_energy_control()
 
 	bot_player_id = 2 if local_player_id == 1 else 1
+	call_deferred("_stabilize_board_row_markers")
 
 	# Do not build MatchState yet. The player must choose a deck first.
 	interaction_locked = true
@@ -366,6 +394,239 @@ func _ready() -> void:
 	)
 
 	print("Waiting for player deck selection.")
+
+
+func _stabilize_board_row_markers() -> void:
+	# Wait until the scene camera and physical board have reached their final
+	# transforms. The markers stay world-space objects; this only chooses their
+	# final board position after startup camera/layout work is finished.
+	await get_tree().process_frame
+	await get_tree().process_frame
+	_ensure_board_row_markers()
+
+	await get_tree().create_timer(0.18).timeout
+	_ensure_board_row_markers()
+
+
+func _ensure_board_row_markers() -> void:
+	# These symbols are 3D objects on the physical board, never HUD elements.
+	if not show_board_row_markers:
+		return
+	if not is_instance_valid(game_layout):
+		return
+
+	var old_root := game_layout.get_node_or_null("RowMarkers3D") as Node3D
+	if old_root != null:
+		old_root.free()
+
+	var camera: Camera3D = camera_3d
+	if not is_instance_valid(camera):
+		camera = get_viewport().get_camera_3d()
+	if camera == null:
+		return
+
+	var dealer_bottom_anchor: Marker3D = game_layout.get_dealer_anchor(
+		DealerSlotID.Type.RIGHT
+	)
+	var dealer_previous_anchor: Marker3D = game_layout.get_dealer_anchor(
+		DealerSlotID.Type.MIDDLE_1
+	)
+
+	if dealer_bottom_anchor == null or dealer_previous_anchor == null:
+		push_warning("Board row markers: dealer anchors are missing.")
+		return
+
+	var places: Array[CardPlace3D] = [
+		game_layout.get_board_place(
+			local_player_id,
+			SlotID.Type.BACK_RIGHT
+		),
+		game_layout.get_board_place(
+			local_player_id,
+			SlotID.Type.FRONT_RIGHT
+		),
+		game_layout.get_board_place(
+			bot_player_id,
+			SlotID.Type.FRONT_RIGHT
+		),
+		game_layout.get_board_place(
+			bot_player_id,
+			SlotID.Type.BACK_RIGHT
+		)
+	]
+
+	for place: CardPlace3D in places:
+		if place == null or place.card_anchor == null:
+			push_warning("Board row markers: board anchors are missing.")
+			return
+
+	var bottom_local: Vector3 = game_layout.to_local(
+		dealer_bottom_anchor.global_position
+	)
+	var previous_local: Vector3 = game_layout.to_local(
+		dealer_previous_anchor.global_position
+	)
+
+	var board_axis: Vector3 = bottom_local - previous_local
+	board_axis.y = 0.0
+	var lane_step: float = board_axis.length()
+	if lane_step <= 0.001:
+		push_warning("Board row markers: lane spacing could not be measured.")
+		return
+	board_axis /= lane_step
+
+	# IMPORTANT: logical lane ordering does not guarantee which local axis points
+	# toward the BOTTOM of the current camera view. Compare both directions on
+	# screen and explicitly choose the one whose projected Y goes downward.
+	var base_screen_y: float = camera.unproject_position(
+		dealer_bottom_anchor.global_position
+	).y
+	var axis_test_local: Vector3 = bottom_local + board_axis * lane_step
+	var axis_test_screen_y: float = camera.unproject_position(
+		game_layout.to_global(axis_test_local)
+	).y
+	if axis_test_screen_y < base_screen_y:
+		board_axis = -board_axis
+
+	var anchor_positions: Array[Vector3] = [
+		game_layout.to_local(places[0].card_anchor.global_position),
+		game_layout.to_local(places[1].card_anchor.global_position),
+		bottom_local,
+		game_layout.to_local(places[2].card_anchor.global_position),
+		game_layout.to_local(places[3].card_anchor.global_position)
+	]
+
+	var textures: Array[Texture2D] = [
+		ROW_MARKER_PLAYER_BACK,
+		ROW_MARKER_PLAYER_FRONT,
+		ROW_MARKER_DEALER,
+		ROW_MARKER_OPPONENT_FRONT,
+		ROW_MARKER_OPPONENT_BACK
+	]
+
+	var marker_root := Node3D.new()
+	marker_root.name = "RowMarkers3D"
+	game_layout.add_child(marker_root)
+
+	var marker_height: float = lane_step * board_row_marker_height_ratio
+	var surface_y: float = bottom_local.y + board_row_marker_surface_lift
+
+	for index: int in range(anchor_positions.size()):
+		var texture: Texture2D = textures[index]
+		if texture == null:
+			continue
+
+		var marker := MeshInstance3D.new()
+		marker.name = "RowMarker_%d" % index
+		marker.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+		var plane := PlaneMesh.new()
+		var texture_height: float = maxf(1.0, float(texture.get_height()))
+		var aspect: float = float(texture.get_width()) / texture_height
+		plane.size = Vector2(
+			marker_height * aspect,
+			marker_height
+		)
+
+		var material := StandardMaterial3D.new()
+		material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		material.cull_mode = BaseMaterial3D.CULL_DISABLED
+		material.albedo_color = Color.WHITE
+		material.albedo_texture = texture
+		# Keep the world-space row symbols exactly at their solved board position,
+		# but render them over the decorative stone lip instead of underneath it.
+		material.no_depth_test = true
+		material.render_priority = 20
+		plane.material = material
+		marker.mesh = plane
+
+		marker.position = _get_bottom_screen_row_marker_position(
+			anchor_positions[index],
+			board_axis,
+			lane_step,
+			surface_y,
+			camera
+		)
+		marker_root.add_child(marker)
+
+
+func _get_bottom_screen_row_marker_position(
+	anchor_local: Vector3,
+	board_down: Vector3,
+	lane_step: float,
+	surface_y: float,
+	camera: Camera3D
+) -> Vector3:
+	# Reference screenshot: marker centers are at y ~= 911 on a 947 px image.
+	# Solve the WORLD-SPACE point on the board that projects to that same
+	# bottom-screen position. This prevents the old sign error that sent the
+	# symbols above the battlefield.
+	var viewport_height: float = get_viewport().get_visible_rect().size.y
+	if viewport_height <= 1.0:
+		var fallback := anchor_local + (
+			board_down * lane_step * board_row_marker_bottom_offset
+		)
+		fallback.y = surface_y
+		return fallback
+
+	var target_y: float = viewport_height * board_row_marker_screen_y_ratio
+
+	var start_point: Vector3 = anchor_local
+	start_point.y = surface_y
+	var start_y: float = camera.unproject_position(
+		game_layout.to_global(start_point)
+	).y
+
+	# The selected board_down direction is guaranteed to move DOWN on screen.
+	# Expand until we bracket the requested bottom position.
+	var low_t: float = 0.0
+	var high_t: float = 0.75
+	var high_y: float = start_y
+
+	for _expand: int in range(8):
+		var high_point: Vector3 = (
+			anchor_local + board_down * lane_step * high_t
+		)
+		high_point.y = surface_y
+		high_y = camera.unproject_position(
+			game_layout.to_global(high_point)
+		).y
+		if high_y >= target_y:
+			break
+		high_t *= 1.65
+
+	if start_y >= target_y:
+		return start_point
+
+	if high_y < target_y:
+		var fallback := anchor_local + (
+			board_down * lane_step * board_row_marker_bottom_offset
+		)
+		fallback.y = surface_y
+		return fallback
+
+	for _step: int in range(24):
+		var middle_t: float = (low_t + high_t) * 0.5
+		var middle_point: Vector3 = (
+			anchor_local + board_down * lane_step * middle_t
+		)
+		middle_point.y = surface_y
+		var middle_y: float = camera.unproject_position(
+			game_layout.to_global(middle_point)
+		).y
+
+		if middle_y < target_y:
+			low_t = middle_t
+		else:
+			high_t = middle_t
+
+	var solved_t: float = (low_t + high_t) * 0.5
+	var solved_position: Vector3 = (
+		anchor_local + board_down * lane_step * solved_t
+	)
+	solved_position.y = surface_y
+	return solved_position
 
 
 func _ensure_card_detail_overlay() -> void:
