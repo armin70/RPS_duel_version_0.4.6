@@ -1,0 +1,31 @@
+[gd_resource type="StandardMaterial3D" format=3 uid="uid://3kur25j48531"]
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_1upob"]
+load_path = "res://.godot/imported/snow_01_color_2k.png-b0a50cff10f5f9a433b5c20b10de18b5.s3tc.ctex"
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_e1nh0"]
+load_path = "res://.godot/imported/snow_01_ambient_occlusion_2k.png-c668817f06b06153dd48edef0f120d8a.s3tc.ctex"
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_ouwxc"]
+load_path = "res://.godot/imported/snow_01_height_2k.png-ae933c4539bf1dc3bc575457c62a8289.s3tc.ctex"
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_aqltv"]
+load_path = "res://.godot/imported/snow_01_normal_gl_2k.png-e2864182563b744c2b1afe9cd78750d8.s3tc.ctex"
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_hafy7"]
+load_path = "res://.godot/imported/snow_01_roughness_2k.png-c303003408b0bee2ba823e723beec939.s3tc.ctex"
+
+[resource]
+albedo_texture = SubResource("CompressedTexture2D_1upob")
+metallic_specular = 0.0
+roughness_texture = SubResource("CompressedTexture2D_hafy7")
+normal_enabled = true
+normal_scale = 16.0
+normal_texture = SubResource("CompressedTexture2D_aqltv")
+ao_enabled = true
+ao_light_affect = 1.0
+ao_texture = SubResource("CompressedTexture2D_e1nh0")
+heightmap_enabled = true
+heightmap_texture = SubResource("CompressedTexture2D_ouwxc")
+uv1_scale = Vector3(7.5, 7.5, 7.5)
+uv1_offset = Vector3(-0.345, -0.3, 1)

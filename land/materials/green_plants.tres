@@ -1,0 +1,30 @@
+[gd_resource type="StandardMaterial3D" format=3 uid="uid://bk3wa1s1e01h3"]
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_vb6o6"]
+load_path = "res://.godot/imported/ground_04_color_2k.png-912e310bdcf42f18cec0fe7c6ae94296.s3tc.ctex"
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_h8t2l"]
+load_path = "res://.godot/imported/ground_04_ambient_occlusion_2k.png-6a211e7e4b85299569ca0901b62e1a7f.s3tc.ctex"
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_fng5x"]
+load_path = "res://.godot/imported/ground_04_height_2k.png-261ea93177daeebd1b2c9183d3cf01ae.s3tc.ctex"
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_64ema"]
+load_path = "res://.godot/imported/ground_04_normal_gl_2k.png-a26b8e72f91fc64a326bb36b70ca0dc0.s3tc.ctex"
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_3jua5"]
+load_path = "res://.godot/imported/ground_04_roughness_2k.png-f6798cfc7b82c64d3f5895e7666c4e33.s3tc.ctex"
+
+[resource]
+albedo_texture = SubResource("CompressedTexture2D_vb6o6")
+metallic_specular = 0.0
+roughness_texture = SubResource("CompressedTexture2D_3jua5")
+normal_enabled = true
+normal_scale = 16.0
+normal_texture = SubResource("CompressedTexture2D_64ema")
+ao_enabled = true
+ao_light_affect = 1.0
+ao_texture = SubResource("CompressedTexture2D_h8t2l")
+heightmap_enabled = true
+heightmap_texture = SubResource("CompressedTexture2D_fng5x")
+uv1_scale = Vector3(1.5, 1.5, 1.5)

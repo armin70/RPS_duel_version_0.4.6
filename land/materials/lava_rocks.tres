@@ -1,0 +1,30 @@
+[gd_resource type="StandardMaterial3D" format=3 uid="uid://cnwtslb53wmtd"]
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_g5ckr"]
+load_path = "res://.godot/imported/lava_rocks_01_color_2k.png-ee035ac854100c5541529497c85fbf48.s3tc.ctex"
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_hvqdq"]
+load_path = "res://.godot/imported/lava_rocks_01_ambient_occlusion_2k.png-8828e90c69f28577c269ba0181812cf1.s3tc.ctex"
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_4d4hp"]
+load_path = "res://.godot/imported/lava_rocks_01_height_2k.png-e15cd05016bd90bdb153984e518491a3.s3tc.ctex"
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_bljtl"]
+load_path = "res://.godot/imported/lava_rocks_01_normal_gl_2k.png-329c63481b133ec11e20bc05b4659484.s3tc.ctex"
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_8r2iu"]
+load_path = "res://.godot/imported/lava_rocks_01_roughness_2k.png-edccca854a182a8401ea8fba9dd007da.s3tc.ctex"
+
+[resource]
+albedo_texture = SubResource("CompressedTexture2D_g5ckr")
+metallic_specular = 0.25
+roughness_texture = SubResource("CompressedTexture2D_8r2iu")
+normal_enabled = true
+normal_scale = 16.0
+normal_texture = SubResource("CompressedTexture2D_bljtl")
+ao_enabled = true
+ao_light_affect = 1.0
+ao_texture = SubResource("CompressedTexture2D_hvqdq")
+heightmap_enabled = true
+heightmap_texture = SubResource("CompressedTexture2D_4d4hp")
+uv1_scale = Vector3(2.5, 2.5, 2.5)

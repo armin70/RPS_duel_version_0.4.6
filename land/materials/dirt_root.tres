@@ -1,0 +1,31 @@
+[gd_resource type="StandardMaterial3D" format=3 uid="uid://c61p0l2d53k4o"]
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_2edh5"]
+load_path = "res://.godot/imported/ground_with_roots_01_color_2k.png-8e55254b77c11112a49336daf34a9533.s3tc.ctex"
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_pdd2w"]
+load_path = "res://.godot/imported/ground_with_roots_01_ambient_occlusion_2k.png-18b1ebdb85e8c941636c3c84b721a174.s3tc.ctex"
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_yysyq"]
+load_path = "res://.godot/imported/ground_with_roots_01_height_2k.png-a02246703e0b3f6f64102e2ac740e72b.s3tc.ctex"
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_5rdvt"]
+load_path = "res://.godot/imported/ground_with_roots_01_normal_gl_2k.png-9eef604be58bb4e87fa8d036dc9853a8.s3tc.ctex"
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_p4evf"]
+load_path = "res://.godot/imported/ground_with_roots_01_roughness_2k.png-bfc03ac04e47acfcfaa4c6a695a6d6ff.s3tc.ctex"
+
+[resource]
+albedo_texture = SubResource("CompressedTexture2D_2edh5")
+metallic_specular = 0.0
+roughness_texture = SubResource("CompressedTexture2D_p4evf")
+normal_enabled = true
+normal_scale = 16.0
+normal_texture = SubResource("CompressedTexture2D_5rdvt")
+ao_enabled = true
+ao_light_affect = 1.0
+ao_texture = SubResource("CompressedTexture2D_pdd2w")
+heightmap_enabled = true
+heightmap_texture = SubResource("CompressedTexture2D_yysyq")
+uv1_scale = Vector3(5.47, 5.47, 5.47)
+uv1_offset = Vector3(-0.345, -0.3, 1)

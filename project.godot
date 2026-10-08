@@ -11,7 +11,7 @@ config_version=5
 [application]
 
 config/name="Rock_Paper_Scissors_Duel"
-run/main_scene="res://game/main_game.tscn"
+run/main_scene="uid://cdl4hvrn3nxf2"
 config/features=PackedStringArray("4.6", "Mobile")
 boot_splash/image="res://art/splashscreen.png"
 config/icon="res://art/icongame.png"
@@ -36,7 +36,10 @@ window/stretch/aspect="keep_width"
 
 [rendering]
 
+textures/canvas_textures/default_texture_filter=0
 rendering_device/driver.windows="d3d12"
 renderer/rendering_method="mobile"
 textures/vram_compression/import_etc2_astc=true
 textures/default_filters/anisotropic_filtering_level=4
+anti_aliasing/quality/msaa_3d=2
+anti_aliasing/quality/screen_space_aa=2

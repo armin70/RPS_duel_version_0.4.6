@@ -41,8 +41,13 @@ var is_face_up: bool = true
 
 const KEEP_RAISE_HEIGHT: float = 0.18
 
+
 const CARD_FRONT_SIZE := Vector2(0.35, 0.525)
-const HERO_ART_SCALE: float = 1.25
+const HERO_ART_SCALE: float = 1.28
+
+@export_category("Hero Board")
+@export_range(0.0, 0.50, 0.01)
+var hero_board_lift: float = 0.18
 
 const HERO_TYPE_ROCK: Texture2D = preload(
 	"res://art/hero_type_icons/rock.png"
@@ -108,7 +113,7 @@ func _build_hero_hp_label() -> void:
 
 	hero_hp_label = Label3D.new()
 	hero_hp_label.name = "HeroHPLabel"
-	hero_hp_label.font_size = 72
+	hero_hp_label.font_size = 100
 	hero_hp_label.outline_size = 10
 	hero_hp_label.modulate = Color.WHITE
 	hero_hp_label.outline_modulate = Color.BLACK
@@ -156,7 +161,7 @@ func _hero_overlay_layout() -> Dictionary:
 	match hero_definition.hero_kind:
 		HeroDefinition.HeroKind.ROSTAM:
 			return {
-				"hp_center": Vector2(0.78, 0.15),
+				"hp_center": Vector2(0.7323731, 0.1912160),
 				"hp_height": 0.1434475,
 				"type_center": Vector2(0.7475098, 0.3845592),
 				"type_size": Vector2(0.2179856, 0.1741440)
@@ -397,22 +402,11 @@ func _create_card_material() -> void:
 		return
 
 	card_material = StandardMaterial3D.new()
-
-	# Card art should not change color with table lighting.
-	card_material.shading_mode = \
-		BaseMaterial3D.SHADING_MODE_UNSHADED
-
-	card_material.cull_mode = \
-		BaseMaterial3D.CULL_DISABLED
-
-	# Champion artwork contains real transparent pixels.
-	# Without an alpha transparency mode those pixels render black.
-	card_material.transparency = \
-		BaseMaterial3D.TRANSPARENCY_ALPHA
-
+	card_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	card_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	card_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	card_material.albedo_color = Color.WHITE
 	card_art.material_override = card_material
-
 
 func _refresh_card_art_shape() -> void:
 	if card_art == null:
@@ -433,18 +427,12 @@ func _refresh_card_art_shape() -> void:
 		visual_scale
 	)
 
-	# CardBody is an opaque box behind CardArt. It must be hidden for a
-	# face-up champion or it shows through the PNG's transparent pixels.
+	# Keep the PNG's transparent background visible.
+	# CardBody is the large solid rectangle that was appearing behind the artwork.
 	if card_body != null:
-		card_body.visible = not is_face_up_hero
+		card_body.visible = false
 
-	# Avoid a rectangular card-shaped shadow around cut-out champion art.
-	card_art.cast_shadow = (
-		GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		if is_face_up_hero
-		else GeometryInstance3D.SHADOW_CASTING_SETTING_ON
-	)
-
+	card_art.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 func setup(
 	new_card_instance: CardInstance,
@@ -513,7 +501,8 @@ func refresh_front_visual() -> void:
 		and card_instance.definition != null
 		and card_instance.definition.front_texture != null
 	):
-		card_material.albedo_texture = card_instance.definition.front_texture
+		card_material.albedo_texture = \
+			card_instance.definition.front_texture
 
 	_refresh_card_art_shape()
 	_refresh_gesture_override_label()
@@ -593,6 +582,14 @@ func set_keep_selected(value: bool) -> void:
 
 func _apply_home_transform() -> void:
 	global_transform = home_transform
+
+	if (
+		card_instance != null
+		and card_instance.is_hero()
+		and is_face_up
+		and card_instance.zone == CardZone.Type.BOARD
+	):
+		global_position += Vector3.UP * hero_board_lift
 
 	if (
 		keep_selected
@@ -804,9 +801,6 @@ func play_rush_penalty_remove(
 	# Hand cards do not need status overlays while they disappear.
 	disabled_card.visible = false
 	shield_badge.visible = false
-
-	card_material.transparency = \
-		BaseMaterial3D.TRANSPARENCY_ALPHA
 
 	var start_color: Color = card_material.albedo_color
 	start_color.a = 1.0

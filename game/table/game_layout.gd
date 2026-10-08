@@ -7,7 +7,8 @@ extends Node3D
 # PlayerBoard / DealerRow / OpponentBoard / collisions / CardAnchors will all
 # physically inherit the same transform. Runtime code never overwrites them.
 
-
+@export_category("Board Cards")
+@export var board_card_lift: float = 0.30
 
 
 @export_category("Hand Layout")
@@ -366,7 +367,10 @@ func get_board_anchor_transform(
 	if place == null or place.card_anchor == null:
 		return Transform3D.IDENTITY
 
-	return place.card_anchor.global_transform
+	var result := place.card_anchor.global_transform
+	result.origin += result.basis.y.normalized() * board_card_lift
+
+	return result
 
 
 func get_middle_row_center_transform(

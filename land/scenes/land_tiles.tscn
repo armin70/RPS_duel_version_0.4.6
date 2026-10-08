@@ -1,0 +1,16 @@
+[gd_scene format=3 uid="uid://b3ia6syxyx7mc"]
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_7pnc5"]
+load_path = "res://.godot/imported/textureCardtiles.png-0c52c1014a63a30082854d8be4e2af42.s3tc.ctex"
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_xi3lg"]
+transparency = 1
+albedo_texture = SubResource("CompressedTexture2D_7pnc5")
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_mqphx"]
+material = SubResource("StandardMaterial3D_xi3lg")
+size = Vector2(10.73, 9.685)
+
+[node name="LandTiles" type="MeshInstance3D" unique_id=1477101348]
+transform = Transform3D(1.025, 0, 0, 0, 1.025, 0, 0, 0, 1.025, 0, 0, 0)
+mesh = SubResource("PlaneMesh_mqphx")

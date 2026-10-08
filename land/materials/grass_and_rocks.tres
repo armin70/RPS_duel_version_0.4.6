@@ -1,0 +1,30 @@
+[gd_resource type="StandardMaterial3D" format=3 uid="uid://ccvauc7wg3qrf"]
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_5kqx3"]
+load_path = "res://.godot/imported/grass_with_rocks_01_color_2k.png-032b0e40d24549505fbb7994119525c5.s3tc.ctex"
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_1gm0w"]
+load_path = "res://.godot/imported/grass_with_rocks_01_ambientocclusion_2k.png-348b1ff2d9160063d655c118aaddc900.s3tc.ctex"
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_tlfqh"]
+load_path = "res://.godot/imported/grass_with_rocks_01_height_2k.png-604b68d5e591aec5767965c5d5e25098.s3tc.ctex"
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_tpudl"]
+load_path = "res://.godot/imported/grass_with_rocks_01_normal_gl_2k.png-b41c5c2ead67dad536791ba81cd12649.s3tc.ctex"
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_2j5ha"]
+load_path = "res://.godot/imported/grass_with_rocks_01_roughness_2k.png-46369f6c4c9f2f38b40153de478b686c.s3tc.ctex"
+
+[resource]
+albedo_color = Color(0.85130984, 0.85130984, 0.85130984, 1)
+albedo_texture = SubResource("CompressedTexture2D_5kqx3")
+roughness_texture = SubResource("CompressedTexture2D_2j5ha")
+normal_enabled = true
+normal_scale = 16.0
+normal_texture = SubResource("CompressedTexture2D_tpudl")
+ao_enabled = true
+ao_light_affect = 1.0
+ao_texture = SubResource("CompressedTexture2D_1gm0w")
+heightmap_enabled = true
+heightmap_texture = SubResource("CompressedTexture2D_tlfqh")
+uv1_scale = Vector3(3, 3, 3)

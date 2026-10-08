@@ -1,0 +1,23 @@
+[gd_scene format=3 uid="uid://d27scvfwvhxed"]
+
+[ext_resource type="Script" uid="uid://bbsfi7lvlwy0e" path="res://land/scripts/grounds_material_manager.gd" id="1_script"]
+[ext_resource type="Material" path="res://land/materials/lava_rocks.tres" id="2_spiad"]
+[ext_resource type="Material" uid="uid://ccvauc7wg3qrf" path="res://land/materials/grass_and_rocks.tres" id="3_right"]
+
+[sub_resource type="PlaneMesh" id="GroundPlane"]
+size = Vector2(12, 12)
+
+[node name="GROUNDS" type="Node3D" unique_id=1307849093]
+script = ExtResource("1_script")
+left_material = ExtResource("2_spiad")
+right_material = ExtResource("3_right")
+
+[node name="GroundLeft" type="MeshInstance3D" parent="." unique_id=1778791926]
+transform = Transform3D(1.2054762, 0, 0, 0, 1, 0, 0, 0, 1.2054762, -8.66648, -0.043472648, 7.274234)
+material_override = ExtResource("2_spiad")
+mesh = SubResource("GroundPlane")
+
+[node name="GroundRight" type="MeshInstance3D" parent="." unique_id=510396826]
+transform = Transform3D(1.2054762, 0, 0, 0, 1, 0, 0, 0, 1.2054762, 8.682393, -0.043472648, 7.274234)
+material_override = ExtResource("3_right")
+mesh = SubResource("GroundPlane")

@@ -1,0 +1,31 @@
+[gd_resource type="StandardMaterial3D" format=3 uid="uid://b17eh1wstxpox"]
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_h8fdl"]
+load_path = "res://.godot/imported/ground_tiles_23_basecolor_2k.png-c53d0f417c3d8820b2409cedee552db0.s3tc.ctex"
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_63mfb"]
+load_path = "res://.godot/imported/ground_tiles_23_ambientocclusion_2k.png-5e56ba66e54e3fd6f3c9b55cad4c8581.s3tc.ctex"
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_4f7us"]
+load_path = "res://.godot/imported/ground_tiles_23_metallic_2k.png-8c0a3af094cebd2a8b3ebb51c054d491.s3tc.ctex"
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_yk6rr"]
+load_path = "res://.godot/imported/ground_tiles_23_normal_gl_2k.png-1e63d39006405d5a6e63137726650c2f.s3tc.ctex"
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_ku0ka"]
+load_path = "res://.godot/imported/ground_tiles_23_roughness_2k.png-2cf192a35c8bf87343a38b626a92ab03.s3tc.ctex"
+
+[resource]
+albedo_texture = SubResource("CompressedTexture2D_h8fdl")
+metallic = 1.0
+metallic_specular = 0.0
+metallic_texture = SubResource("CompressedTexture2D_4f7us")
+roughness_texture = SubResource("CompressedTexture2D_ku0ka")
+normal_enabled = true
+normal_scale = 16.0
+normal_texture = SubResource("CompressedTexture2D_yk6rr")
+ao_enabled = true
+ao_light_affect = 1.0
+ao_texture = SubResource("CompressedTexture2D_63mfb")
+heightmap_enabled = true
+uv1_scale = Vector3(3, 3, 3)

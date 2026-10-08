@@ -1,0 +1,31 @@
+[gd_resource type="StandardMaterial3D" format=3 uid="uid://sif22mhff66m"]
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_6nyl6"]
+load_path = "res://.godot/imported/ground_stones_02_basecolor_2k.png-d9953e2cf92243ba03b0d509248f04f5.s3tc.ctex"
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_4yc2g"]
+load_path = "res://.godot/imported/ground_stones_02_ambientOcclusion_2k.png-600317faf1971de03f8dfc79405b6e1a.s3tc.ctex"
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_athhe"]
+load_path = "res://.godot/imported/ground_stones_02_height_2k.png-c72d7a5784a4ee1dcf2c8cecabda86b1.s3tc.ctex"
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_kk1c2"]
+load_path = "res://.godot/imported/ground_stones_02_normal_gl_2k.png-3870675e0558e056ff9c15cf68c86847.s3tc.ctex"
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_eny81"]
+load_path = "res://.godot/imported/ground_stones_02_roughness_2k.png-eb8cc3030ce4e20fa09328c2790069ef.s3tc.ctex"
+
+[resource]
+albedo_color = Color(1.2033486, 1.3322645, 1.1930354, 1)
+albedo_texture = SubResource("CompressedTexture2D_6nyl6")
+metallic_specular = 0.25
+roughness_texture = SubResource("CompressedTexture2D_eny81")
+normal_enabled = true
+normal_scale = 16.0
+normal_texture = SubResource("CompressedTexture2D_kk1c2")
+ao_enabled = true
+ao_light_affect = 1.0
+ao_texture = SubResource("CompressedTexture2D_4yc2g")
+heightmap_enabled = true
+heightmap_texture = SubResource("CompressedTexture2D_athhe")
+uv1_scale = Vector3(3, 3, 3)

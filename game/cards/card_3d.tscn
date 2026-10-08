@@ -5,16 +5,16 @@
 [ext_resource type="Texture2D" uid="uid://cqouov0wam3j3" path="res://art/cards/16.png" id="3_mdc8w"]
 
 [sub_resource type="BoxMesh" id="BoxMesh_fuxww"]
-size = Vector3(0.42, 0.01, 0.63)
+size = Vector3(1.3, 0.01, 1.95)
 
 [sub_resource type="QuadMesh" id="QuadMesh_hee7s"]
-size = Vector2(0.42, 0.63)
+size = Vector2(1.3, 1.95)
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_hee7s"]
-size = Vector3(0.42, 0.07, 0.63)
+size = Vector3(1.3, 0.07, 1.95)
 
 [sub_resource type="QuadMesh" id="QuadMesh_bml1i"]
-size = Vector2(0.42, 0.63)
+size = Vector2(1.3, 1.95)
 
 [sub_resource type="Shader" id="Shader_g0bg8"]
 code = "shader_type spatial;
@@ -127,7 +127,7 @@ blend_mode = 3
 albedo_color = Color(0.3309365, 0.3309365, 0.3309365, 0.654902)
 
 [sub_resource type="BoxMesh" id="BoxMesh_tkf3v"]
-size = Vector3(0.42, 0.03, 0.63)
+size = Vector3(1.3, 0.03, 1.95)
 
 [node name="card_3d" type="Area3D" unique_id=162614256]
 collision_mask = 0
@@ -138,7 +138,7 @@ back_texture = ExtResource("2_bml1i")
 mesh = SubResource("BoxMesh_fuxww")
 
 [node name="CardArt" type="MeshInstance3D" parent="." unique_id=1330747358]
-transform = Transform3D(1, 0, 0, 0, -4.371139e-08, 1, 0, -1, -4.371139e-08, 0, 0.007, 0)
+transform = Transform3D(1, 0, 0, 0, -4.371139e-08, 1, 0, -1, -4.371139e-08, 0, 0.0051005483, 0)
 mesh = SubResource("QuadMesh_hee7s")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=709102180]
